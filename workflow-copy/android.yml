@@ -1,0 +1,119 @@
+name: Release Android app (APK)
+
+# The "button": GitHub -> Actions -> "Release Android app (APK)" -> Run workflow.
+# Builds a signed ASBDataGhana.apk and publishes it as the newest release.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      version:
+        description: Exact version instead (optional, e.g. 1.4.0)
+        required: false
+        default: ''
+      notes:
+        description: Release notes
+        required: false
+        default: Improvements and bug fixes.
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Bump version
+        id: bump
+        run: node scripts/bump-version.mjs "${{ inputs.bump }}" "${{ inputs.version }}"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Create the Android project
+        run: npx cap add android
+
+      - name: Generate app icon and splash screen
+        run: npx capacitor-assets generate --android
+
+      - name: Copy the web app into Android
+        run: npx cap sync android
+
+      - name: Set the Android version
+        run: node scripts/set-android-version.mjs "${{ steps.bump.outputs.version }}" "${{ steps.bump.outputs.code }}"
+
+      - name: Build release APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Sign the APK
+        env:
+          SECRET_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          SECRET_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SECRET_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -n "$SECRET_KEYSTORE" ]; then
+            # You added your own keystore as repository secrets: use it.
+            echo "$SECRET_KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            KS="$RUNNER_TEMP/release.keystore"; PASS="$SECRET_PASS"; ALIAS="$SECRET_ALIAS"
+          else
+            # Zero-setup default: create one signing key the first time and reuse it
+            # forever, so new versions install over old ones.
+            KS="android-signing/asbdata.keystore"; ALIAS="asbdata"
+            if [ ! -f "$KS" ]; then
+              mkdir -p android-signing
+              PASS=$(openssl rand -hex 16)
+              keytool -genkeypair -keystore "$KS" -alias "$ALIAS" -keyalg RSA -keysize 2048 -validity 36500 \
+                -storepass "$PASS" -keypass "$PASS" -dname "CN=ASBData Ghana, O=ASBData Ghana, C=GH"
+              echo "$PASS" > android-signing/password.txt
+              echo "Created a new signing key."
+            fi
+            PASS=$(cat android-signing/password.txt)
+          fi
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          UNSIGNED=$(ls android/app/build/outputs/apk/release/*.apk | head -n 1)
+          "$BT/zipalign" -p -f 4 "$UNSIGNED" aligned.apk
+          "$BT/apksigner" sign --ks "$KS" --ks-key-alias "$ALIAS" --ks-pass "pass:$PASS" --key-pass "pass:$PASS" --out ASBDataGhana.apk aligned.apk
+          "$BT/apksigner" verify ASBDataGhana.apk
+
+      - name: Commit the version bump and publish the release
+        env:
+          NOTES: ${{ inputs.notes }}
+        run: |
+          VERSION="${{ steps.bump.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "chore(release): v$VERSION"
+          git push origin "HEAD:${{ github.ref_name }}"
+          gh release create "v$VERSION" ASBDataGhana.apk \
+            --title "ASBData Ghana v$VERSION" --notes "$NOTES" --target "$(git rev-parse HEAD)"
+          {
+            echo "### Released v$VERSION"
+            echo ""
+            echo "Download: https://github.com/${{ github.repository }}/releases/latest/download/ASBDataGhana.apk"
+          } >> "$GITHUB_STEP_SUMMARY"

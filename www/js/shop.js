@@ -1,0 +1,196 @@
+/* Buy Data tab + the full purchase flow (form -> secure payment -> live status). */
+(() => {
+  'use strict';
+  const { $, $$, esc, sleep } = App;
+  const ui = App.ui, fmt = App.fmt, cfg = App.cfg, S = App.state;
+  const P = (window.Capacitor && window.Capacitor.Plugins) || {};
+  const SLUGS = Object.keys(cfg.NETWORKS);
+
+  const shop = (App.screens.shop = {
+    net: 'mtn',
+    render() {
+      return `<div class="stag">
+        <h1 class="page-title">Buy Data</h1><p class="page-sub">Pick a network, then a bundle. Delivered in minutes.</p>
+        <div class="nets"><span class="ind"></span>${SLUGS.map((k) => `<button class="tap" data-net="${k}" data-quiet="1">${esc(cfg.NETWORKS[k].name)}</button>`).join('')}</div>
+        <div class="grid" id="bundleGrid"></div></div>`;
+    },
+    mount(root) {
+      root.addEventListener('click', (e) => {
+        const n = e.target.closest('[data-net]'); if (n) { App.native.haptic('light'); shop.select(n.dataset.net); return; }
+        const b = e.target.closest('[data-bundle]'); if (b) shop.buy(shop.net, S.bundles[shop.net].find((x) => String(x.id) === b.dataset.bundle));
+        if (e.target.closest('[data-retry]')) shop.select(shop.net, true);
+      });
+      shop.select(shop.net);
+    },
+    async ensureNetworks() {
+      if (Object.keys(S.networks).length) return true;
+      const r = await App.api('/networks', { auth: false });
+      if (!r.ok) return false;
+      r.data.data.forEach((n) => { S.networks[n.slug] = n; });
+      return true;
+    },
+    async select(slug, force) {
+      shop.net = slug;
+      const root = $('#tab-shop'); if (!root.querySelector('#bundleGrid')) return;
+      const idx = SLUGS.indexOf(slug);
+      $$('.nets button', root).forEach((b) => b.classList.toggle('on', b.dataset.net === slug));
+      $('.nets .ind', root).style.transform = `translateX(${idx * 100}%)`;
+      const grid = $('#bundleGrid', root);
+      if (!S.bundles[slug] || force) {
+        grid.innerHTML = Array.from({ length: 6 }, () => '<div class="bun"><i class="sk-av" style="width:100%;height:96px;border-radius:14px"></i></div>').join('');
+        const ok = await shop.ensureNetworks();
+        const net = S.networks[slug];
+        const r = ok && net ? await App.api(`/networks/${net.id}/bundles`, { auth: false }) : null;
+        if (shop.net !== slug) return;
+        if (!r || !r.ok) { grid.innerHTML = `<div style="grid-column:1/-1">${ui.empty('wifi-off', 'Could not load bundles', (r && r.error) || 'Check your connection and try again.', '<button class="btn btn-tonal btn-sm tap" data-retry="1">Try again</button>')}</div>`; return; }
+        S.bundles[slug] = r.data.data;
+      }
+      if (shop.net !== slug) return;
+      const m = cfg.NETWORKS[slug];
+      const list = S.bundles[slug];
+      grid.innerHTML = list.length ? list.map((b, i) => `
+        <button class="bun tap" data-bundle="${b.id}" style="--i:${i}">
+          <div class="bun-top"><span class="net" style="background:${m.bg};color:${m.fg}">${esc(m.tag)}</span><span class="keep">No expiry</span></div>
+          <div class="size">${esc(b.size_label)}</div>
+          <div class="bun-bot"><span class="price">${fmt.money(b.price)}</span><span class="go">${ui.icon('arrow-right')}</span></div>
+        </button>`).join('') : `<div style="grid-column:1/-1">${ui.empty('data', 'No bundles right now', 'Please check again shortly.')}</div>`;
+    },
+
+    /* ---------- purchase sheet ---------- */
+    async buy(slug, b) {
+      if (!b) return;
+      const m = cfg.NETWORKS[slug], logged = App.session.loggedIn, gp = App.store.get('guest_profile', {});
+      const canWallet = logged && S.wallet && S.wallet.balance >= Number(b.price);
+      const guestBlock = logged ? '' : S.guestEnabled ? `
+        <div class="h-sec" style="margin-top:20px">Your details</div>
+        <div class="field" style="margin-top:0"><div class="inp"><input id="g-first" placeholder="First name" autocomplete="given-name" value="${esc(gp.first || '')}" /></div></div>
+        <div class="field" style="margin-top:10px"><div class="inp"><input id="g-last" placeholder="Last name" autocomplete="family-name" value="${esc(gp.last || '')}" /></div></div>
+        <div class="field" style="margin-top:10px"><div class="inp"><input id="g-email" type="email" placeholder="Email address" autocomplete="email" value="${esc(gp.email || '')}" /></div></div>
+        <div class="field" style="margin-top:10px"><div class="inp"><input id="g-phone" type="tel" inputmode="tel" placeholder="Your phone number" autocomplete="tel" value="${esc(gp.phone || '')}" /></div></div>
+        <p class="note">We email your receipt. <button class="link" data-act="login-from-sheet">Have an account? Log in</button></p>` : `
+        <div class="err-msg" style="margin-top:18px">Guest checkout is switched off right now. Please log in or create an account to buy data.</div>
+        <div class="btn-col"><button class="btn btn-primary" data-act="login-from-sheet">Log in or sign up</button></div>`;
+      const payBlock = logged ? `
+        <div class="h-sec" style="margin-top:20px">Pay with</div>
+        <div class="pay"><button class="on" data-pm="payaza">Mobile Money / Card<small>Secure payment page</small></button>
+        <button data-pm="wallet" ${canWallet ? '' : 'disabled'}>Wallet<small>${S.wallet ? fmt.money(S.wallet.balance) : 'GH₵0.00'}</small></button></div>` : '';
+
+      const sheet = ui.sheet({});
+      sheet.set(`
+        <div style="display:flex;align-items:center;gap:14px"><span class="net" style="background:${m.bg};color:${m.fg}">${esc(m.tag)}</span>
+          <div><h3 class="sheet-title">${esc(b.size_label)} ${esc(m.name)}</h3><p class="sheet-sub" style="margin-top:2px">Non expiry data bundle</p></div></div>
+        <label class="field"><span>Recipient number</span>
+          <div class="inp" id="rcpt"><input id="num" inputmode="numeric" maxlength="14" placeholder="024 123 4567" autocomplete="off" />
+          <span class="end ok" id="rcptOk">${ui.icon('check')}</span></div></label>
+        ${guestBlock || ''}${payBlock}
+        <div class="sum"><div><span>Bundle</span><b>${esc(b.size_label)} · ${esc(m.name)}</b></div><div class="tot"><span>Total</span><b>${fmt.money(b.price)}</b></div></div>
+        <div id="buyErr"></div>
+        ${logged || S.guestEnabled ? `<div class="btn-col" style="margin-top:12px"><button class="btn btn-primary tap" id="payBtn">Pay ${fmt.money(b.price)}</button></div>` : ''}`);
+
+      const el = sheet.el; let method = 'payaza';
+      const num = $('#num', el);
+      num.addEventListener('input', () => { $('#rcptOk', el).classList.toggle('on', /^\d{9,10}$/.test(fmt.local(num.value))); });
+      el.addEventListener('click', (e) => {
+        const pm = e.target.closest('[data-pm]');
+        if (pm && !pm.disabled) { method = pm.dataset.pm; $$('[data-pm]', el).forEach((x) => x.classList.toggle('on', x === pm)); }
+        if (e.target.closest('[data-act="login-from-sheet"]')) { sheet.close(); App.actions.login(); }
+      });
+      const pay = $('#payBtn', el); if (!pay) return;
+      const showErr = (t) => { $('#buyErr', el).innerHTML = `<div class="err-msg">${esc(t)}</div>`; App.native.haptic('error'); };
+      pay.addEventListener('click', async () => {
+        $('#buyErr', el).innerHTML = '';
+        const number = fmt.local(num.value);
+        if (!/^\d{9,10}$/.test(number)) { $('#rcpt', el).classList.add('bad'); num.focus(); return showErr('Enter the 10-digit number that should receive the data.'); }
+        $('#rcpt', el).classList.remove('bad');
+        let guest = null;
+        if (!logged) {
+          guest = { first: $('#g-first', el).value.trim(), last: $('#g-last', el).value.trim(), email: $('#g-email', el).value.trim(), phone: $('#g-phone', el).value.trim() };
+          if (!guest.first || !guest.last || !guest.email || !guest.phone) return showErr('Please fill in your first name, last name, email and phone number.');
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guest.email)) return showErr('Please enter a valid email address.');
+          if (guest.phone.replace(/\D/g, '').length < 9) return showErr('Please enter a valid phone number.');
+          App.store.set('guest_profile', guest);
+        }
+        ui.busy(pay, true, 'Processing');
+        const r = logged
+          ? await App.api('/orders', { method: 'POST', body: { data_bundle_id: Number(b.id), recipient_number: number, payment_method: method } })
+          : await App.api('/orders/guest', { method: 'POST', auth: false, body: { first_name: guest.first, last_name: guest.last, email: guest.email, phone: guest.phone, data_bundle_id: Number(b.id), recipient_number: number } });
+        ui.busy(pay, false);
+        if (!r.ok) {
+          if (r.code === 'guest_checkout_disabled') S.guestEnabled = false;
+          return showErr(r.error);
+        }
+        shop.track(sheet, { order: r.data.order, url: r.data.authorization_url, guest: !logged, network: m.name, size: b.size_label, number, amount: Number(b.price), method });
+      });
+    },
+
+    /* ---------- payment tracking ---------- */
+    async track(sheet, c) {
+      let ref = null;
+      try { ref = c.url ? new URL(c.url).searchParams.get('transaction_reference') : null; } catch (_) {}
+      const id = c.order && c.order.id;
+      const verifyPath = c.guest ? `/orders/guest/verify/${encodeURIComponent(ref)}` : ref ? `/orders/verify/${encodeURIComponent(ref)}` : `/orders/${id}`;
+      const rec = { ref: ref || id, id, network: c.network, size: c.size, number: c.number, amount: c.amount, status: (c.order && c.order.status) || 'pending_payment', at: new Date().toISOString() };
+      if (c.guest) App.guestOrders.upsert(rec);
+      App.markStale('home', 'orders');
+      sheet.persistent = true;
+
+      const waitView = (text) => sheet.set(`<div class="res"><div class="wait-ring"></div><h3>${c.url ? 'Complete your payment' : 'Placing your order'}</h3>
+        <p>${esc(text)}</p></div>
+        ${c.url ? `<div class="btn-col"><button class="btn btn-primary tap" id="chk">I have paid, check status</button><button class="btn btn-outline tap" id="reopen">Open payment page again</button></div>` : ''}`);
+      waitView(c.url ? 'A secure payment page opened. Pay with Mobile Money or card, then come back here. We will update this screen automatically.' : 'Paying from your wallet…');
+
+      let done = false, closedAt = null, notPaid = 0, busy = false;
+      const finish = (kind, order) => {
+        if (done) return; done = true; cleanup();
+        rec.status = order ? order.status : rec.status;
+        if (c.guest) App.guestOrders.upsert(rec);
+        if (App.session.loggedIn) App.refreshData();
+        App.markStale('home', 'orders', 'me');
+        App.native.haptic(kind === 'ok' ? 'success' : 'error');
+        const map = {
+          ok: ['ok', 'check', 'Order delivered', `Your ${c.size} ${c.network} bundle is on its way to ${c.number}.`],
+          err: ['err', 'x', 'Order failed', 'Something went wrong. If you were charged, you will be refunded. Contact support with your order.'],
+          warn: ['warn', 'clock', 'Payment not completed', 'We have not received your payment yet. If you already paid, wait a minute and check again.'],
+          proc: ['warn', 'clock', 'Still processing', 'Your payment was received and the bundle is being delivered. This can take a few minutes.'],
+        }[kind];
+        sheet.persistent = false;
+        sheet.set(`<div class="res"><div class="res-ic ${map[0]}">${ui.icon(map[1])}</div><h3>${map[2]}</h3><p>${esc(map[3])}</p>
+          <div class="sum"><div><span>Network</span><b>${esc(c.network)}</b></div><div><span>Bundle</span><b>${esc(c.size)}</b></div><div><span>Recipient</span><b>${esc(c.number)}</b></div><div class="tot"><span>Amount</span><b>${fmt.money(c.amount)}</b></div></div></div>
+          <div class="btn-col">${kind === 'warn' ? '<button class="btn btn-primary tap" id="again">Check again</button>' : ''}<button class="btn ${kind === 'warn' ? 'btn-outline' : 'btn-primary'} tap" id="done">Done</button></div>`);
+        $('#done', sheet.el).addEventListener('click', () => sheet.close());
+        const again = $('#again', sheet.el);
+        if (again) again.addEventListener('click', () => { done = false; closedAt = Date.now(); notPaid = 0; waitView('Checking your payment…'); wire(); loop(); });
+      };
+
+      const check = async () => {
+        if (busy || done) return; busy = true;
+        const r = await App.api(verifyPath, { auth: !c.guest });
+        busy = false;
+        if (!r.ok) return;
+        const o = r.data.order || r.data.data || r.data;
+        if (!o || !o.status) return;
+        rec.status = o.status;
+        if (o.status === 'delivered') return finish('ok', o);
+        if (o.status === 'failed' || o.status === 'refunded') return finish('err', o);
+        if (o.status === 'pending_payment') { if (closedAt && Date.now() - closedAt > 4000) { notPaid++; if (notPaid >= 3) finish('warn', o); } }
+        else if (closedAt && Date.now() - closedAt > 45000) finish('proc', o);
+      };
+      const loop = async () => { for (let i = 0; i < 100 && !done; i++) { await check(); await sleep(3000); } if (!done) finish('proc'); };
+
+      const subs = [];
+      const cleanup = () => subs.forEach((s) => { try { s.remove(); } catch (_) {} });
+      const wire = () => {
+        const chk = $('#chk', sheet.el), re = $('#reopen', sheet.el);
+        if (chk) chk.addEventListener('click', async () => { ui.busy(chk, true, 'Checking'); closedAt = closedAt || Date.now() - 5000; await check(); ui.busy(chk, false); if (!done) ui.toast('No payment yet. Finish paying, then check again.'); });
+        if (re) re.addEventListener('click', () => App.native.open(c.url));
+      };
+      wire();
+      if (P.Browser) P.Browser.addListener('browserFinished', () => { closedAt = Date.now(); check(); }).then((s) => subs.push(s)).catch(() => {});
+      if (P.App) P.App.addListener('appStateChange', (s) => { if (s.isActive) check(); }).then((s) => subs.push(s)).catch(() => {});
+      if (c.url) App.native.open(c.url);
+      loop();
+    },
+  });
+
+  App.openShop = (slug) => { if (slug) shop.net = slug; App.tab('shop'); shop.select(shop.net); };
+})();
