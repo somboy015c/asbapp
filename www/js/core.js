@@ -56,6 +56,36 @@
     },
     hideSplash() { if (P.SplashScreen) P.SplashScreen.hide({ fadeOutDuration: 250 }).catch(() => {}); },
     exit() { if (P.App) P.App.exitApp(); },
+    /* Opens the payment page INSIDE the app. Calls onReturn() when the payment page sends the person back to
+       our website (payment finished) and onClose() if they close the window. Falls back to the system
+       browser tab if the in-app window plugin is not available. */
+    async openPayment(url, { onReturn, onClose } = {}) {
+      const IAB = P.InAppBrowser;
+      const isReturn = (u) => { try { const h = new URL(u).hostname; return /(^|\.)asbdataghana\.com$/.test(h); } catch (_) { return false; } };
+      if (IAB && IAB.openWebView) {
+        const subs = [];
+        const cleanup = () => subs.forEach((x) => { try { x.remove(); } catch (_) {} });
+        let ended = false;
+        const end = async (kind) => {
+          if (ended) return; ended = true; cleanup();
+          if (kind === 'return') { try { await IAB.close(); } catch (_) {} onReturn && onReturn(); } else onClose && onClose();
+        };
+        try {
+          subs.push(await IAB.addListener('urlChangeEvent', (e) => { if (e && e.url && isReturn(e.url)) end('return'); }));
+          subs.push(await IAB.addListener('closeEvent', () => end('close')));
+          await IAB.openWebView({ url, title: 'Secure payment', showReloadButton: false, closeModal: false });
+          return { close: async () => { if (!ended) { ended = true; cleanup(); try { await IAB.close(); } catch (_) {} } } };
+        } catch (_) { cleanup(); }
+      }
+      if (P.Browser) {
+        const subs = [];
+        P.Browser.addListener('browserFinished', () => { onClose && onClose(); }).then((x) => subs.push(x)).catch(() => {});
+        App.native.open(url);
+        return { close: async () => { try { await P.Browser.close(); } catch (_) {} subs.forEach((x) => { try { x.remove(); } catch (_) {} }); } };
+      }
+      window.open(url, '_blank');
+      return { close: async () => {} };
+    },
     async version() {
       try { if (P.App) return (await P.App.getInfo()).version; } catch (_) {}
       return App.state.version;
@@ -63,7 +93,7 @@
   };
 
   /* ---------- API client ---------- */
-  App.api = async (path, { method = 'GET', body, query, auth = true } = {}) => {
+  App.api = async (path, { method = 'GET', body, query, auth = true, form } = {}) => {
     let url = cfg.API_BASE + path;
     if (query) {
       const qs = new URLSearchParams();
@@ -71,14 +101,22 @@
       if ([...qs].length) url += '?' + qs.toString();
     }
     const headers = { Accept: 'application/json' };
-    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    if (form) body = form;                                  // multipart upload: let the browser set the boundary
+    else if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (auth && App.state.token) headers.Authorization = 'Bearer ' + App.state.token;
 
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 30000);
     let res;
     try {
-      res = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, signal: ctl.signal });
+      const payload = body === undefined ? undefined : form ? body : JSON.stringify(body);
+      try {
+        res = await fetch(url, { method, headers, body: payload, signal: ctl.signal });
+      } catch (e) {
+        // File uploads: if the native HTTP layer can't send it, retry through the WebView's own fetch.
+        if (form && window.CapacitorWebFetch) res = await window.CapacitorWebFetch(url, { method, headers, body: payload, signal: ctl.signal });
+        else throw e;
+      }
     } catch (_) {
       return { ok: false, status: 0, data: null, code: 'offline', error: "Can't reach the server. Check your internet connection." };
     } finally { clearTimeout(timer); }
@@ -98,7 +136,7 @@
   App.session = {
     load() { App.state.token = App.store.get('token'); App.state.user = App.store.get('user'); },
     save(token, user) { App.state.token = token; App.state.user = user; App.store.set('token', token); App.store.set('user', user); },
-    clear() { App.state.token = App.state.user = App.state.wallet = null; App.state.orders = null; App.store.remove('token'); App.store.remove('user'); },
+    clear() { App.state.token = App.state.user = App.state.wallet = App.state.agentWallet = null; App.state.orders = null; App.store.remove('token'); App.store.remove('user'); },
     get loggedIn() { return !!App.state.token; },
   };
 
@@ -116,6 +154,24 @@
     const k = String(name || '').toLowerCase().replace(/\s+/g, '');
     return cfg.NETWORKS[k] || { name: name || '?', tag: String(name || '?').slice(0, 2).toUpperCase(), bg: '#2A2FA0', fg: '#fff' };
   };
+
+  /* ---------- images: shrink a picked photo so uploads are small and always under the server limit ---------- */
+  App.img = {
+    prepare(file, maxPx = 1280, quality = 0.82) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file), img = new Image();
+        img.onload = () => {
+          const r = Math.min(1, maxPx / Math.max(img.width, img.height));
+          const c = document.createElement('canvas'); c.width = Math.round(img.width * r); c.height = Math.round(img.height * r);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          c.toBlob((b) => { URL.revokeObjectURL(url); b ? resolve(b) : reject(new Error('Could not read that image.')); }, 'image/jpeg', quality);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image.')); };
+        img.src = url;
+      });
+    },
+  };
+  App.isAgent = () => !!(App.state.user && App.state.user.agent_status === 'approved');
 
   /* ---------- guest order history (kept on the device) ---------- */
   App.guestOrders = {

@@ -6,8 +6,11 @@ The ASBData Ghana main website as a native-feeling Android app. Plain HTML/CSS/J
 - Animated splash screen, then a 3-slide onboarding (first launch only)
 - **No account needed to buy.** Guests pay with Mobile Money or card; accounts are optional (wallet + order history)
 - Home, Buy Data, Orders, Support and Me tabs, light and dark mode, bottom sheets, ripples, haptics, spinners on every button action
-- Payments open Payaza's secure page; the app then confirms and shows the result by itself
-- Anything about **agents** (become an agent, agent dashboard, stores) opens on the website in the phone's browser. Agent pages are not part of the app
+- **Payments happen inside the app.** The Payaza page opens in an in-app window; when payment finishes the app closes it, confirms the payment and shows the result
+- **Become an agent, entirely in the app:** see the plans, pay for one, set up your storefront (logo, website address, payout details) and wait for approval
+- **Agent dashboard, entirely in the app:** wallet and top-up, sales chart and commission stats, store settings (brand, logo and images, payout, contact and social), withdrawals, and your transaction PIN. Agents also see wholesale prices and can pay with their agent wallet, customer wallet or directly
+- "Earn with ASBData" only shows to people who are not agents yet. Approved agents see an Agent Dashboard card instead
+- The **only** page that leaves the app is **Visit my website** (your agent store), which opens in the phone's browser. Calling, WhatsApp and email naturally open the phone's own apps, and the update download opens the browser
 - The app uses the same API as your website (`api.asbdataghana.com`), so prices, bundles and the guest-checkout switch in your admin panel apply instantly. No backend changes are needed
 
 ## Setup (once, all in the browser)
@@ -48,6 +51,7 @@ Fix: Add file → Create new file, type `.github/workflows/android.yml` as the n
 
 - **Signing key:** the first release creates a signing key and saves it in `android-signing/` in your repo, so every later version can install over the old one. Because the repo is public, that key is public too. That is fine for downloading the APK from your own link. For Google Play, add your own key instead as repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_ALIAS`. The workflow uses them automatically when present.
 - **Guest checkout** must be switched on in your admin panel (Settings). If it is off, the app asks people to log in before buying.
-- **Payment flow:** after tapping Pay, the Payaza page opens inside the app. When the person comes back, the app checks the payment and shows the result. They can also tap "I have paid, check status".
+- **Payment flow:** after tapping Pay, the Payaza page opens inside the app. When the person comes back, the app checks the payment and shows the result. They can also tap "I have paid, check status". The in-app window uses the `@capgo/inappbrowser` plugin; if it can't load for any reason the app falls back to a browser tab instead of failing.
+- **Photo uploads** (logo, store images) are shrunk on the phone before sending. They use the same API as your website's agent dashboard.
 - **iPhone:** the same code runs on iOS, but building for iPhone needs a Mac and an Apple Developer account. It is not part of the button.
 - **Local testing (optional):** install Node 22, JDK 21 and Android Studio, then `npm install`, `npx cap add android`, `npx capacitor-assets generate --android`, `npx cap sync android`, `npx cap open android`.

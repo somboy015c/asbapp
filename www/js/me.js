@@ -13,13 +13,15 @@
         : `<div class="prof"><div class="av">${ui.icon('user')}</div><div><b>Guest</b><small>Buying without an account</small></div></div>
            <div class="btn-col" style="margin:0 0 14px"><button class="btn btn-primary tap" data-act="login">Log in</button><button class="btn btn-outline tap" data-act="register">Create an account</button></div>`;
       return `<div class="stag"><h1 class="page-title">Settings</h1><div style="height:8px"></div>${head}
-        <div class="banner">${ui.icon('briefcase')}<div><b>Earn with ASBData</b>Become an agent and get your own store.</div><button class="tap" data-url="/become-agent.html">Open</button></div>
+        ${App.isAgent()
+          ? `<div class="banner">${ui.icon('briefcase')}<div><b>Agent Dashboard</b>Your store, wallet and withdrawals.</div><button class="tap" data-act="agent">Open</button></div>`
+          : `<div class="banner">${ui.icon('briefcase')}<div><b>Earn with ASBData</b>${logged && u.agent_status === 'rejected' ? 'Update your agent application.' : 'Become an agent and get your own store.'}</div><button class="tap" data-act="agent">${logged && u.agent_status === 'rejected' ? 'Update' : 'Open'}</button></div>`}
         <div class="list">
           ${logged ? row('user', 'Profile Details', 'See your account details.', 'data-act="profile"') : ''}
           ${row('sliders', 'Preference', 'Dark mode and feedback.', 'data-act="prefs"')}
           ${logged ? row('lock', 'Security', 'Change your password.', 'data-act="security"') : ''}
           ${row('help', 'Get Help', 'Reach out for support anytime.', 'data-tab="support"')}
-          ${row('file', 'Privacy & Policy', 'How we handle your data.', 'data-url="/policy.html"')}
+          ${row('file', 'Privacy & Policy', 'How we handle your data.', 'data-act="policy"')}
           ${row('info', 'About', 'Version and updates.', 'data-act="about"')}
           ${logged ? row('logout', 'Log Out', 'Sign out of this device.', 'data-act="logout"', 'danger') : ''}
         </div></div>`;
@@ -76,7 +78,7 @@
     async logout() {
       if (!(await ui.confirm({ title: 'Log out?', message: 'You can still buy data as a guest after logging out.', ok: 'Log out', danger: true }))) return;
       try { await Promise.race([App.api('/auth/logout', { method: 'POST' }), App.sleep(2500)]); } catch (_) {}
-      App.session.clear();
+      App.session.clear(); S.agentWallet = null;
       App.markStale('home', 'orders', 'me');
       App.refresh('me', true); App.refresh('home', true);
       ui.toast('Logged out', 'ok');

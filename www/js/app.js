@@ -66,6 +66,7 @@
   });
   Object.assign(App.actions, {
     theme: () => App.setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'),
+    agent: () => App.agent.open(),
     eye: () => { App.store.set('hide_balance', !App.store.get('hide_balance', false)); App.refresh('home', true); },
   });
 
@@ -90,6 +91,7 @@
     if (!App.session.loggedIn) return;
     const [me, w, o] = await Promise.all([App.api('/me'), App.api('/wallet'), App.api('/orders', { query: { per_page: 30 } })]);
     if (me.ok) { S.user = me.data.data || me.data; App.store.set('user', S.user); }
+    if (App.isAgent()) { const aw = await App.api('/agent/wallet'); if (aw.ok) S.agentWallet = aw.data.data || aw.data; }
     if (w.ok) S.wallet = w.data.data || w.data;
     if (o.ok) S.orders = o.data.data;
     App.markStale('home', 'orders', 'me');

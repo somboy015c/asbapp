@@ -3,7 +3,6 @@
   'use strict';
   const { $, $$, esc, sleep } = App;
   const ui = App.ui, fmt = App.fmt, cfg = App.cfg, S = App.state;
-  const P = (window.Capacitor && window.Capacitor.Plugins) || {};
   const SLUGS = Object.keys(cfg.NETWORKS);
 
   const shop = (App.screens.shop = {
@@ -36,11 +35,13 @@
       $$('.nets button', root).forEach((b) => b.classList.toggle('on', b.dataset.net === slug));
       $('.nets .ind', root).style.transform = `translateX(${idx * 100}%)`;
       const grid = $('#bundleGrid', root);
+      const who = App.session.loggedIn ? 'u' + ((S.user && S.user.id) || '') + (App.isAgent() ? 'a' : '') : 'guest';
+      if (S.bundlesFor !== who) { S.bundles = {}; S.bundlesFor = who; }
       if (!S.bundles[slug] || force) {
         grid.innerHTML = Array.from({ length: 6 }, () => '<div class="bun"><i class="sk-av" style="width:100%;height:96px;border-radius:14px"></i></div>').join('');
         const ok = await shop.ensureNetworks();
         const net = S.networks[slug];
-        const r = ok && net ? await App.api(`/networks/${net.id}/bundles`, { auth: false }) : null;
+        const r = ok && net ? await App.api(`/networks/${net.id}/bundles`, { auth: App.session.loggedIn }) : null;
         if (shop.net !== slug) return;
         if (!r || !r.ok) { grid.innerHTML = `<div style="grid-column:1/-1">${ui.empty('wifi-off', 'Could not load bundles', (r && r.error) || 'Check your connection and try again.', '<button class="btn btn-tonal btn-sm tap" data-retry="1">Try again</button>')}</div>`; return; }
         S.bundles[slug] = r.data.data;
@@ -60,7 +61,17 @@
     async buy(slug, b) {
       if (!b) return;
       const m = cfg.NETWORKS[slug], logged = App.session.loggedIn, gp = App.store.get('guest_profile', {});
-      const canWallet = logged && S.wallet && S.wallet.balance >= Number(b.price);
+      const agent = logged && App.isAgent();
+      const price = Number(b.price);
+      const methods = !logged ? [] : agent ? [
+        { v: 'agent_wallet', t: 'Agent wallet', sub: fmt.money(S.agentWallet ? S.agentWallet.balance : 0), off: !(S.agentWallet && S.agentWallet.balance >= price) },
+        { v: 'customer_wallet', t: 'Customer wallet', sub: fmt.money(S.wallet ? S.wallet.balance : 0), off: !(S.wallet && S.wallet.balance >= price) },
+        { v: 'payaza', t: 'Pay directly', sub: 'MoMo or card', off: false },
+      ] : [
+        { v: 'payaza', t: 'Mobile Money / Card', sub: 'Secure payment', off: false },
+        { v: 'wallet', t: 'Wallet', sub: fmt.money(S.wallet ? S.wallet.balance : 0), off: !(S.wallet && S.wallet.balance >= price) },
+      ];
+      const firstOn = (methods.find((x) => !x.off) || methods[0] || {}).v;
       const guestBlock = logged ? '' : S.guestEnabled ? `
         <div class="h-sec" style="margin-top:20px">Your details</div>
         <div class="field" style="margin-top:0"><div class="inp"><input id="g-first" placeholder="First name" autocomplete="given-name" value="${esc(gp.first || '')}" /></div></div>
@@ -72,8 +83,7 @@
         <div class="btn-col"><button class="btn btn-primary" data-act="login-from-sheet">Log in or sign up</button></div>`;
       const payBlock = logged ? `
         <div class="h-sec" style="margin-top:20px">Pay with</div>
-        <div class="pay"><button class="on" data-pm="payaza">Mobile Money / Card<small>Secure payment page</small></button>
-        <button data-pm="wallet" ${canWallet ? '' : 'disabled'}>Wallet<small>${S.wallet ? fmt.money(S.wallet.balance) : 'GH₵0.00'}</small></button></div>` : '';
+        <div class="pay${methods.length === 3 ? ' three' : ''}">${methods.map((x) => `<button class="${x.v === firstOn ? 'on' : ''}" data-pm="${x.v}" ${x.off ? 'disabled' : ''}>${esc(x.t)}<small>${esc(x.sub)}</small></button>`).join('')}</div>` : '';
 
       const sheet = ui.sheet({});
       sheet.set(`
@@ -87,7 +97,7 @@
         <div id="buyErr"></div>
         ${logged || S.guestEnabled ? `<div class="btn-col" style="margin-top:12px"><button class="btn btn-primary tap" id="payBtn">Pay ${fmt.money(b.price)}</button></div>` : ''}`);
 
-      const el = sheet.el; let method = 'payaza';
+      const el = sheet.el; let method = firstOn || 'payaza';
       const num = $('#num', el);
       num.addEventListener('input', () => { $('#rcptOk', el).classList.toggle('on', /^\d{9,10}$/.test(fmt.local(num.value))); });
       el.addEventListener('click', (e) => {
@@ -112,10 +122,11 @@
         }
         ui.busy(pay, true, 'Processing');
         const r = logged
-          ? await App.api('/orders', { method: 'POST', body: { data_bundle_id: Number(b.id), recipient_number: number, payment_method: method } })
+          ? await App.api(agent ? '/agent/orders' : '/orders', { method: 'POST', body: { data_bundle_id: Number(b.id), recipient_number: number, payment_method: method } })
           : await App.api('/orders/guest', { method: 'POST', auth: false, body: { first_name: guest.first, last_name: guest.last, email: guest.email, phone: guest.phone, data_bundle_id: Number(b.id), recipient_number: number } });
         ui.busy(pay, false);
         if (!r.ok) {
+          if (r.code === 'pin_required') { if (await App.agentPin()) pay.click(); return; }
           if (r.code === 'guest_checkout_disabled') S.guestEnabled = false;
           return showErr(r.error);
         }
@@ -124,7 +135,7 @@
     },
 
     /* ---------- payment tracking ---------- */
-    async track(sheet, c) {
+    track(sheet, c) {
       let ref = null;
       try { ref = c.url ? new URL(c.url).searchParams.get('transaction_reference') : null; } catch (_) {}
       const id = c.order && c.order.id;
@@ -132,63 +143,29 @@
       const rec = { ref: ref || id, id, network: c.network, size: c.size, number: c.number, amount: c.amount, status: (c.order && c.order.status) || 'pending_payment', at: new Date().toISOString() };
       if (c.guest) App.guestOrders.upsert(rec);
       App.markStale('home', 'orders');
-      sheet.persistent = true;
-
-      const waitView = (text) => sheet.set(`<div class="res"><div class="wait-ring"></div><h3>${c.url ? 'Complete your payment' : 'Placing your order'}</h3>
-        <p>${esc(text)}</p></div>
-        ${c.url ? `<div class="btn-col"><button class="btn btn-primary tap" id="chk">I have paid, check status</button><button class="btn btn-outline tap" id="reopen">Open payment page again</button></div>` : ''}`);
-      waitView(c.url ? 'A secure payment page opened. Pay with Mobile Money or card, then come back here. We will update this screen automatically.' : 'Paying from your wallet…');
-
-      let done = false, closedAt = null, notPaid = 0, busy = false;
-      const finish = (kind, order) => {
-        if (done) return; done = true; cleanup();
-        rec.status = order ? order.status : rec.status;
-        if (c.guest) App.guestOrders.upsert(rec);
-        if (App.session.loggedIn) App.refreshData();
-        App.markStale('home', 'orders', 'me');
-        App.native.haptic(kind === 'ok' ? 'success' : 'error');
-        const map = {
-          ok: ['ok', 'check', 'Order delivered', `Your ${c.size} ${c.network} bundle is on its way to ${c.number}.`],
-          err: ['err', 'x', 'Order failed', 'Something went wrong. If you were charged, you will be refunded. Contact support with your order.'],
-          warn: ['warn', 'clock', 'Payment not completed', 'We have not received your payment yet. If you already paid, wait a minute and check again.'],
-          proc: ['warn', 'clock', 'Still processing', 'Your payment was received and the bundle is being delivered. This can take a few minutes.'],
-        }[kind];
-        sheet.persistent = false;
-        sheet.set(`<div class="res"><div class="res-ic ${map[0]}">${ui.icon(map[1])}</div><h3>${map[2]}</h3><p>${esc(map[3])}</p>
-          <div class="sum"><div><span>Network</span><b>${esc(c.network)}</b></div><div><span>Bundle</span><b>${esc(c.size)}</b></div><div><span>Recipient</span><b>${esc(c.number)}</b></div><div class="tot"><span>Amount</span><b>${fmt.money(c.amount)}</b></div></div></div>
-          <div class="btn-col">${kind === 'warn' ? '<button class="btn btn-primary tap" id="again">Check again</button>' : ''}<button class="btn ${kind === 'warn' ? 'btn-outline' : 'btn-primary'} tap" id="done">Done</button></div>`);
-        $('#done', sheet.el).addEventListener('click', () => sheet.close());
-        const again = $('#again', sheet.el);
-        if (again) again.addEventListener('click', () => { done = false; closedAt = Date.now(); notPaid = 0; waitView('Checking your payment…'); wire(); loop(); });
-      };
-
-      const check = async () => {
-        if (busy || done) return; busy = true;
-        const r = await App.api(verifyPath, { auth: !c.guest });
-        busy = false;
-        if (!r.ok) return;
-        const o = r.data.order || r.data.data || r.data;
-        if (!o || !o.status) return;
-        rec.status = o.status;
-        if (o.status === 'delivered') return finish('ok', o);
-        if (o.status === 'failed' || o.status === 'refunded') return finish('err', o);
-        if (o.status === 'pending_payment') { if (closedAt && Date.now() - closedAt > 4000) { notPaid++; if (notPaid >= 3) finish('warn', o); } }
-        else if (closedAt && Date.now() - closedAt > 45000) finish('proc', o);
-      };
-      const loop = async () => { for (let i = 0; i < 100 && !done; i++) { await check(); await sleep(3000); } if (!done) finish('proc'); };
-
-      const subs = [];
-      const cleanup = () => subs.forEach((s) => { try { s.remove(); } catch (_) {} });
-      const wire = () => {
-        const chk = $('#chk', sheet.el), re = $('#reopen', sheet.el);
-        if (chk) chk.addEventListener('click', async () => { ui.busy(chk, true, 'Checking'); closedAt = closedAt || Date.now() - 5000; await check(); ui.busy(chk, false); if (!done) ui.toast('No payment yet. Finish paying, then check again.'); });
-        if (re) re.addEventListener('click', () => App.native.open(c.url));
-      };
-      wire();
-      if (P.Browser) P.Browser.addListener('browserFinished', () => { closedAt = Date.now(); check(); }).then((s) => subs.push(s)).catch(() => {});
-      if (P.App) P.App.addListener('appStateChange', (s) => { if (s.isActive) check(); }).then((s) => subs.push(s)).catch(() => {});
-      if (c.url) App.native.open(c.url);
-      loop();
+      const summary = `<div class="sum"><div><span>Network</span><b>${esc(c.network)}</b></div><div><span>Bundle</span><b>${esc(c.size)}</b></div><div><span>Recipient</span><b>${esc(c.number)}</b></div><div class="tot"><span>Amount</span><b>${fmt.money(c.amount)}</b></div></div>`;
+      App.pay.track(sheet, {
+        url: c.url,
+        waitTitle: c.url ? 'Complete your payment' : 'Placing your order',
+        waitText: c.url ? '' : 'Paying from your wallet…',
+        summary,
+        results: {
+          ok: ['Order delivered', `Your ${c.size} ${c.network} bundle is on its way to ${c.number}.`],
+          err: ['Order failed', 'Something went wrong. If you were charged, you will be refunded. Contact support with your order.'],
+          warn: ['Payment not completed', 'We have not received your payment yet. If you already paid, wait a minute and check again.'],
+          proc: ['Still processing', 'Your payment was received and the bundle is being delivered. This can take a few minutes.'],
+        },
+        async check() {
+          const r = await App.api(verifyPath, { auth: !c.guest });
+          if (!r.ok) return null;
+          const o = r.data.order || r.data.data || r.data;
+          if (!o || !o.status) return null;
+          rec.status = o.status;
+          if (c.guest) App.guestOrders.upsert(rec);
+          return { state: App.pay.orderState(o.status) };
+        },
+        onDone() { if (App.session.loggedIn) App.refreshData(); App.markStale('home', 'orders', 'me'); },
+      });
     },
   });
 

@@ -17,6 +17,8 @@
     await App.refreshData();
     App.nav.closeAll();
     App.refresh('home', true);
+    const cb = App.afterLogin; App.afterLogin = null;
+    if (cb) setTimeout(cb, 380);
     ui.toast('Welcome' + (user && user.name ? ', ' + App.fmt.first(user.name) : ''), 'ok');
     App.native.haptic('success');
   }

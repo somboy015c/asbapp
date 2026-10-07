@@ -10,6 +10,7 @@
       const dark = document.documentElement.dataset.theme === 'dark';
       const name = logged ? fmt.first(S.user && S.user.name) || 'there' : 'Guest';
       const hide = App.store.get('hide_balance', false);
+      const isAgent = App.isAgent(), rejected = logged && S.user && S.user.agent_status === 'rejected';
       const recent = (logged ? S.orders || [] : App.guestOrders.list()).slice(0, 3);
 
       const hero = logged ? `
@@ -47,12 +48,11 @@
         </section>
         <section class="card"><div class="svc">
           ${Object.entries(App.cfg.NETWORKS).map(([k, m]) => `<button class="tap" data-shop="${k}"><span class="net" style="background:${m.bg};color:${m.fg}">${esc(m.tag)}</span>${esc(m.name)}</button>`).join('')}
-          <button class="tap" data-url="/become-agent.html"><span class="net alt">${ui.icon('briefcase')}</span>Agents</button>
+          <button class="tap" data-act="agent"><span class="net alt">${ui.icon('briefcase')}</span>${isAgent ? 'Dashboard' : 'Agents'}</button>
         </div></section>
-        <section class="card promo">
-          <div><h3>Start your own data store</h3><p>Become an agent and earn on every bundle you sell.</p></div>
-          <button class="btn btn-tonal btn-sm tap" data-url="/become-agent.html" aria-label="Open agent page">${ui.icon('external')}</button>
-        </section>
+        ${isAgent ? `<section class="card promo agent-card tap" data-act="agent"><span class="net alt" style="flex-shrink:0">${ui.icon('briefcase')}</span><div><h3>Agent Dashboard</h3><p>Manage your store, wallet and withdrawals.</p></div><span class="chev-btn">${ui.icon('chev-right')}</span></section>`
+        : `<section class="card promo"><div><h3>${rejected ? 'Update your agent application' : 'Earn with ASBData'}</h3><p>${rejected ? 'Some details need changes before you can be approved.' : 'Become an agent, get your own store and earn on every bundle you sell.'}</p></div>
+          <button class="btn btn-tonal btn-sm tap" data-act="agent" aria-label="Become an agent">${ui.icon('arrow-right')}</button></section>`}
         <section class="card">
           <div class="sec-head"><h3>Recent Orders</h3><button data-tab="orders">View all</button></div>
           ${recent.length ? recent.map((o, i) => ui.orderRow(o, i)).join('')
