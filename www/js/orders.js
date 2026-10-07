@@ -7,14 +7,18 @@
 
   const items = () => (App.session.loggedIn ? S.orders : App.guestOrders.list());
 
+  const listHtml = () => {
+    const list = items();
+    if (list === null) return ui.skel(5);
+    if (!list.length) return ui.empty('receipt', 'No orders yet', 'Buy a data bundle and it will show up here.', `<button class="btn btn-primary btn-sm tap" data-tab="shop">Buy data</button>`);
+    return list.map((o, i) => ui.orderRow(o, i)).join('');
+  };
+
   App.screens.orders = {
     render() {
-      const logged = App.session.loggedIn, list = items();
+      const logged = App.session.loggedIn;
       const guestNote = !logged ? `<div class="banner">${ui.icon('info')}<div><b>Orders on this phone</b>Log in to keep your orders on every device.</div><button class="tap" data-act="login">Log in</button></div>` : '';
-      let body;
-      if (list === null) body = ui.skel(5);
-      else if (!list.length) body = ui.empty('receipt', 'No orders yet', 'Buy a data bundle and it will show up here.', `<button class="btn btn-primary btn-sm tap" data-tab="shop">Buy data</button>`);
-      else body = list.map((o, i) => ui.orderRow(o, i)).join('');
+      const body = listHtml();
       return `<div class="stag"><h1 class="page-title">Orders</h1><p class="page-sub">Track your data purchases.</p>${guestNote}<section class="card" id="orderList" style="padding:8px 14px">${body}</section></div>`;
     },
     async mount() {
@@ -33,7 +37,7 @@
         if (changed) this.paint();
       }
     },
-    paint() { const t = $('#tab-orders'); if (t.classList.contains('on')) App.refresh('orders', true); App.markStale('home'); },
+    paint() { const el = $('#orderList'); if (el) el.innerHTML = listHtml(); App.markStale('home'); },
     open(key) {
       const o = (items() || []).find((x) => String(x.ref || x.id) === String(key));
       if (!o) return;

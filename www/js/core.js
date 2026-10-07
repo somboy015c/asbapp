@@ -44,7 +44,7 @@
     },
     link(url) { window.location.href = url; },          // tel: / mailto:
     haptic(kind = 'light') {
-      if (App.store.get('haptics', true) === false || !P.Haptics) return;
+      if (App.store.get('haptics', false) !== true || !P.Haptics) return;   // off until the person turns it on
       try {
         if (kind === 'success' || kind === 'error') P.Haptics.notification({ type: kind === 'success' ? 'SUCCESS' : 'ERROR' });
         else P.Haptics.impact({ style: kind === 'medium' ? 'MEDIUM' : 'LIGHT' });

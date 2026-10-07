@@ -41,7 +41,7 @@
       const s = ui.sheet({}), dark = document.documentElement.dataset.theme === 'dark';
       s.set(`<h3 class="sheet-title">Preference</h3><div style="margin-top:6px">
         <div class="setrow"><div><b>Dark mode</b><small>Easier on the eyes at night</small></div>${sw('p-dark', dark)}</div>
-        <div class="setrow"><div><b>Haptic feedback</b><small>Gentle vibration on taps</small></div>${sw('p-hap', App.store.get('haptics', true) !== false)}</div></div>`);
+        <div class="setrow"><div><b>Haptic feedback</b><small>Gentle vibration on taps</small></div>${sw('p-hap', App.store.get('haptics', false) === true)}</div></div>`);
       $('#p-dark', s.el).addEventListener('change', (e) => App.setTheme(e.target.checked ? 'dark' : 'light'));
       $('#p-hap', s.el).addEventListener('change', (e) => App.store.set('haptics', e.target.checked));
     },

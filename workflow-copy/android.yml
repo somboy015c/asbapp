@@ -45,8 +45,17 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      - name: Find versions that are already released
+        id: released
+        run: |
+          LIST=$( { git tag --list 'v[0-9]*'; gh release list --limit 100 --json tagName --jq '.[].tagName'; } | sed 's/^v//' | sort -u | tr '\n' ' ')
+          echo "versions=$LIST" >> "$GITHUB_OUTPUT"
+          echo "Already released: $LIST"
+
       - name: Bump version
         id: bump
+        env:
+          BASE_VERSIONS: ${{ steps.released.outputs.versions }}
         run: node scripts/bump-version.mjs "${{ inputs.bump }}" "${{ inputs.version }}"
 
       - name: Install dependencies

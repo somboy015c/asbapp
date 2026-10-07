@@ -4,12 +4,17 @@ import fs from 'node:fs';
 
 const [, , bump = 'patch', exact = ''] = process.argv;
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-const current = pkg.version;
+const cmp = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
+// Versions that already exist as tags/releases on GitHub (passed in by the workflow).
+const released = (process.env.BASE_VERSIONS || '').split(/\s+/).map((v) => v.replace(/^v/, '')).filter((v) => /^\d+\.\d+\.\d+$/.test(v));
+let current = pkg.version;
+for (const v of released) if (cmp(v, current) > 0) current = v;   // continue from the newest release, even if package.json is behind
 
 let next;
 if (exact.trim()) {
   next = exact.trim().replace(/^v/, '');
   if (!/^\d+\.\d+\.\d+$/.test(next)) { console.error(`"${exact}" is not a valid version (expected e.g. 1.4.0)`); process.exit(1); }
+  if (released.includes(next)) { console.error(`Version ${next} has already been released. Leave the version box empty to get the next one automatically.`); process.exit(1); }
 } else {
   let [major, minor, patch] = current.split('.').map(Number);
   if (bump === 'major') { major++; minor = 0; patch = 0; }

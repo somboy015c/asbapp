@@ -119,7 +119,7 @@
     await App.store.init();
     App.session.load();
     const saved = App.store.get('theme');
-    const mode = saved || (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    const mode = saved === 'dark' ? 'dark' : 'light';   // light unless the person chose dark
     document.documentElement.dataset.theme = mode;
     App.native.statusBar(mode === 'dark');
     S.version = await App.native.version();
