@@ -6,6 +6,7 @@ The ASBData Ghana main website as a native-feeling Android app. Plain HTML/CSS/J
 - Animated splash screen, then a 3-slide onboarding (first launch only)
 - **No account needed to buy.** Guests pay with Mobile Money or card; accounts are optional (wallet + order history)
 - Home, Buy Data, Orders, Support and Me tabs, light and dark mode, bottom sheets, ripples, haptics, spinners on every button action
+- **Payaza and Korapay are both supported.** The app follows your admin Settings → Payment methods: one gateway switched on is used automatically, two lets the buyer choose, and a gateway is hidden for orders below its minimum amount (for example Korapay under GH₵10)
 - **Payments happen inside the app.** The Payaza page opens in an in-app window; when payment finishes the app closes it, confirms the payment and shows the result
 - **Become an agent, entirely in the app:** see the plans, pay for one, set up your storefront (logo, website address, payout details) and wait for approval
 - **Agent dashboard, entirely in the app:** wallet and top-up, sales chart and commission stats, store settings (brand, logo and images, payout, contact and social), withdrawals, and your transaction PIN. Agents also see wholesale prices and can pay with their agent wallet, customer wallet or directly
@@ -52,6 +53,7 @@ Fix: Add file → Create new file, type `.github/workflows/android.yml` as the n
 - **Signing key:** the first release creates a signing key and saves it in `android-signing/` in your repo, so every later version can install over the old one. Because the repo is public, that key is public too. That is fine for downloading the APK from your own link. For Google Play, add your own key instead as repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD` and `ANDROID_KEY_ALIAS`. The workflow uses them automatically when present.
 - **Guest checkout** must be switched on in your admin panel (Settings). If it is off, the app asks people to log in before buying.
 - **Payment flow:** after tapping Pay, the Payaza page opens inside the app. When the person comes back, the app checks the payment and shows the result. They can also tap "I have paid, check status". The in-app window uses the `@capgo/inappbrowser` plugin; if it can't load for any reason the app falls back to a browser tab instead of failing.
+- **Cancelled or abandoned payments:** the app shows the same "Payment cancelled" screen as the website, emails the buyer the link to finish paying, and offers a button per gateway to pay again. Orders still waiting for payment also show "Complete payment" under Orders.
 - **Photo uploads** (logo, store images) are shrunk on the phone before sending. They use the same API as your website's agent dashboard.
 - **iPhone:** the same code runs on iOS, but building for iPhone needs a Mac and an Apple Developer account. It is not part of the button.
 - **Local testing (optional):** install Node 22, JDK 21 and Android Studio, then `npm install`, `npx cap add android`, `npx capacitor-assets generate --android`, `npx cap sync android`, `npx cap open android`.

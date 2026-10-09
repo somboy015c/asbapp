@@ -128,7 +128,7 @@
     setTimeout(() => App.native.hideSplash(), 120);
 
     const warm = Promise.race([Promise.all([
-      App.api('/settings/public', { auth: false }).then((r) => { if (r.ok) S.guestEnabled = !!r.data.guest_checkout_enabled; }),
+      App.api('/settings/public', { auth: false }).then((r) => { if (r.ok) { S.guestEnabled = !!r.data.guest_checkout_enabled; S.gateways = r.data.payment_gateways || []; } }),
       App.refreshData(),
     ]), sleep(4500)]);
     await Promise.all([sleep(cfg.MIN_SPLASH_MS), warm]);

@@ -48,8 +48,13 @@
       const msg = encodeURIComponent(`Hello ASBData, I need help with my order ${ref.slice(0, 8)} (${size} ${o.network} to ${number}).`);
       sheet.set(`<div class="res"><div class="res-ic ${kind}">${ui.icon(kind === 'ok' ? 'check' : kind === 'err' ? 'x' : 'clock')}</div><h3>${esc(size)} ${esc(o.network)}</h3><p>${ui.status(o.status)}</p></div>
         <div class="sum"><div><span>Recipient</span><b>${esc(number)}</b></div><div><span>Amount</span><b>${fmt.money(o.amount)}</b></div><div><span>Date</span><b>${esc(fmt.date(when))}</b></div><div><span>Reference</span><b>${esc(ref.slice(0, 8))}</b></div></div>
-        <div class="btn-col"><button class="btn btn-tonal tap" data-url="https://wa.me/${App.cfg.WHATSAPP}?text=${msg}">${ui.icon('whatsapp')}Get help on WhatsApp</button><button class="btn btn-outline tap" id="oc">Close</button></div>`);
+        <div class="btn-col">${o.status === 'pending_payment' ? '<button class="btn btn-primary tap" id="oc-pay">Complete payment</button>' : ''}<button class="btn btn-tonal tap" data-url="https://wa.me/${App.cfg.WHATSAPP}?text=${msg}">${ui.icon('whatsapp')}Get help on WhatsApp</button><button class="btn btn-outline tap" id="oc">Close</button></div>`);
       $('#oc', sheet.el).addEventListener('click', () => sheet.close());
+      const payBtn = $('#oc-pay', sheet.el);
+      if (payBtn) payBtn.addEventListener('click', () => {
+        sheet.close();
+        App.screens.shop.resumeOrder({ id: o.id, ref: o.ref, guest: !App.session.loggedIn, network: o.network, size, number, amount: o.amount });
+      });
     },
   };
 })();

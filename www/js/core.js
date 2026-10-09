@@ -4,7 +4,7 @@
   const cfg = window.ASB;
   const App = (window.App = {
     cfg, screens: {}, ui: {}, actions: {},
-    state: { token: null, user: null, wallet: null, guestEnabled: true, networks: {}, bundles: {}, orders: null, guestOrders: [], update: null, version: '1.0.0' },
+    state: { token: null, user: null, wallet: null, guestEnabled: true, gateways: [], networks: {}, bundles: {}, orders: null, guestOrders: [], update: null, version: '1.0.0' },
   });
   const Cap = window.Capacitor || {};
   const P = Cap.Plugins || {};
@@ -66,12 +66,12 @@
         const subs = [];
         const cleanup = () => subs.forEach((x) => { try { x.remove(); } catch (_) {} });
         let ended = false;
-        const end = async (kind) => {
+        const end = async (kind, backUrl) => {
           if (ended) return; ended = true; cleanup();
-          if (kind === 'return') { try { await IAB.close(); } catch (_) {} onReturn && onReturn(); } else onClose && onClose();
+          if (kind === 'return') { try { await IAB.close(); } catch (_) {} onReturn && onReturn(backUrl); } else onClose && onClose();
         };
         try {
-          subs.push(await IAB.addListener('urlChangeEvent', (e) => { if (e && e.url && isReturn(e.url)) end('return'); }));
+          subs.push(await IAB.addListener('urlChangeEvent', (e) => { if (e && e.url && isReturn(e.url)) end('return', e.url); }));
           subs.push(await IAB.addListener('closeEvent', () => end('close')));
           await IAB.openWebView({ url, title: 'Secure payment', showReloadButton: false, closeModal: false });
           return { close: async () => { if (!ended) { ended = true; cleanup(); try { await IAB.close(); } catch (_) {} } } };
@@ -171,6 +171,7 @@
       });
     },
   };
+  App.gatewaysFor = (price) => (App.state.gateways || []).filter((g) => !(g.min_amount > 0) || Number(price) + 0.001 >= g.min_amount);
   App.isAgent = () => !!(App.state.user && App.state.user.agent_status === 'approved');
 
   /* ---------- guest order history (kept on the device) ---------- */

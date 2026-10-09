@@ -63,27 +63,34 @@
       const m = cfg.NETWORKS[slug], logged = App.session.loggedIn, gp = App.store.get('guest_profile', {});
       const agent = logged && App.isAgent();
       const price = Number(b.price);
-      const methods = !logged ? [] : agent ? [
+      const gws = App.gatewaysFor(price);                       // gateways the admin switched on that accept this amount
+      const many = gws.length > 1;
+      const gwList = gws.length ? gws : [{ key: 'payaza', label: '' }];   // none listed: the server decides and explains
+      const gwMethods = gwList.map((g) => agent
+        ? { v: g.key, t: 'Pay directly', sub: 'Card or Mobile Money' + (many && g.label ? ' · ' + g.label : ''), off: false }
+        : { v: g.key, t: 'Card or Mobile Money', sub: g.label ? 'Pay securely with ' + g.label : 'Pay securely', off: false });
+      const methods = !logged ? (many ? gwMethods : []) : agent ? [
         { v: 'agent_wallet', t: 'Agent wallet', sub: fmt.money(S.agentWallet ? S.agentWallet.balance : 0), off: !(S.agentWallet && S.agentWallet.balance >= price) },
         { v: 'customer_wallet', t: 'Customer wallet', sub: fmt.money(S.wallet ? S.wallet.balance : 0), off: !(S.wallet && S.wallet.balance >= price) },
-        { v: 'payaza', t: 'Pay directly', sub: 'MoMo or card', off: false },
+        ...gwMethods,
       ] : [
-        { v: 'payaza', t: 'Mobile Money / Card', sub: 'Secure payment', off: false },
+        ...gwMethods,
         { v: 'wallet', t: 'Wallet', sub: fmt.money(S.wallet ? S.wallet.balance : 0), off: !(S.wallet && S.wallet.balance >= price) },
       ];
-      const firstOn = (methods.find((x) => !x.off) || methods[0] || {}).v;
+      const firstOn = (methods.find((x) => !x.off) || methods[0] || { v: gwList[0].key }).v;
       const guestBlock = logged ? '' : S.guestEnabled ? `
         <div class="h-sec" style="margin-top:20px">Your details</div>
         <div class="field" style="margin-top:0"><div class="inp"><input id="g-first" placeholder="First name" autocomplete="given-name" value="${esc(gp.first || '')}" /></div></div>
         <div class="field" style="margin-top:10px"><div class="inp"><input id="g-last" placeholder="Last name" autocomplete="family-name" value="${esc(gp.last || '')}" /></div></div>
         <div class="field" style="margin-top:10px"><div class="inp"><input id="g-email" type="email" placeholder="Email address" autocomplete="email" value="${esc(gp.email || '')}" /></div></div>
         <div class="field" style="margin-top:10px"><div class="inp"><input id="g-phone" type="tel" inputmode="tel" placeholder="Your phone number" autocomplete="tel" value="${esc(gp.phone || '')}" /></div></div>
+        ${many ? `<div class="h-sec" style="margin-top:18px">Pay with</div><div class="pay three">${gwMethods.map((x) => `<button class="${x.v === firstOn ? 'on' : ''}" data-pm="${x.v}">${esc(x.t)}<small>${esc(x.sub)}</small></button>`).join('')}</div>` : ''}
         <p class="note">We email your receipt. <button class="link" data-act="login-from-sheet">Have an account? Log in</button></p>` : `
         <div class="err-msg" style="margin-top:18px">Guest checkout is switched off right now. Please log in or create an account to buy data.</div>
         <div class="btn-col"><button class="btn btn-primary" data-act="login-from-sheet">Log in or sign up</button></div>`;
       const payBlock = logged ? `
         <div class="h-sec" style="margin-top:20px">Pay with</div>
-        <div class="pay${methods.length === 3 ? ' three' : ''}">${methods.map((x) => `<button class="${x.v === firstOn ? 'on' : ''}" data-pm="${x.v}" ${x.off ? 'disabled' : ''}>${esc(x.t)}<small>${esc(x.sub)}</small></button>`).join('')}</div>` : '';
+        <div class="pay${methods.length >= 3 ? ' three' : ''}">${methods.map((x) => `<button class="${x.v === firstOn ? 'on' : ''}" data-pm="${x.v}" ${x.off ? 'disabled' : ''}>${esc(x.t)}<small>${esc(x.sub)}</small></button>`).join('')}</div>` : '';
 
       const sheet = ui.sheet({});
       sheet.set(`
@@ -94,6 +101,7 @@
           <span class="end ok" id="rcptOk">${ui.icon('check')}</span></div></label>
         ${guestBlock || ''}${payBlock}
         <div class="sum"><div><span>Bundle</span><b>${esc(b.size_label)} · ${esc(m.name)}</b></div><div class="tot"><span>Total</span><b>${fmt.money(b.price)}</b></div></div>
+        <p class="note" style="margin-top:14px"><b>Double-check the number.</b> Once your order is placed and paid for, it cannot be undone or refunded.</p>
         <div id="buyErr"></div>
         ${logged || S.guestEnabled ? `<div class="btn-col" style="margin-top:12px"><button class="btn btn-primary tap" id="payBtn">Pay ${fmt.money(b.price)}</button></div>` : ''}`);
 
@@ -123,29 +131,45 @@
         ui.busy(pay, true, 'Processing');
         const r = logged
           ? await App.api(agent ? '/agent/orders' : '/orders', { method: 'POST', body: { data_bundle_id: Number(b.id), recipient_number: number, payment_method: method } })
-          : await App.api('/orders/guest', { method: 'POST', auth: false, body: { first_name: guest.first, last_name: guest.last, email: guest.email, phone: guest.phone, data_bundle_id: Number(b.id), recipient_number: number } });
+          : await App.api('/orders/guest', { method: 'POST', auth: false, body: { first_name: guest.first, last_name: guest.last, email: guest.email, phone: guest.phone, data_bundle_id: Number(b.id), recipient_number: number, payment_method: method } });
         ui.busy(pay, false);
         if (!r.ok) {
           if (r.code === 'pin_required') { if (await App.agentPin()) pay.click(); return; }
           if (r.code === 'guest_checkout_disabled') S.guestEnabled = false;
           return showErr(r.error);
         }
-        shop.track(sheet, { order: r.data.order, url: r.data.authorization_url, guest: !logged, network: m.name, size: b.size_label, number, amount: Number(b.price), method });
+        shop.track(sheet, { order: r.data.order, url: r.data.authorization_url, guest: !logged, network: m.name, size: b.size_label, number, amount: Number(b.price), method, gateways: gws });
       });
+    },
+
+    /* Finish paying for an order that is still waiting for payment (the same thing the website's email link does). */
+    async resumeOrder(o) {
+      const ref = o.guest ? o.ref : 'ORD-' + o.id;
+      const gw = await App.pickGateway(o.amount);
+      if (gw === undefined) return;
+      const sheet = ui.sheet({});
+      sheet.set(`<div class="res"><div class="wait-ring"></div><h3>Opening payment</h3></div>`);
+      const r = await App.api(`/orders/payment/${encodeURIComponent(ref)}/resume`, { method: 'POST', auth: false, body: gw ? { payment_method: gw } : {} });
+      if (!r.ok) { sheet.close(); return ui.toast(r.error, 'err'); }
+      if (!r.data.authorization_url) { sheet.close(); ui.toast('This order is already paid. Checking its status…'); App.markStale('orders', 'home'); return App.refresh('orders', true); }
+      shop.track(sheet, { order: { id: o.id }, url: r.data.authorization_url, guest: !!o.guest, network: o.network, size: o.size, number: o.number, amount: Number(o.amount), gateways: App.gatewaysFor(o.amount) });
     },
 
     /* ---------- payment tracking ---------- */
     track(sheet, c) {
-      let ref = null;
-      try { ref = c.url ? new URL(c.url).searchParams.get('transaction_reference') : null; } catch (_) {}
       const id = c.order && c.order.id;
-      const verifyPath = c.guest ? `/orders/guest/verify/${encodeURIComponent(ref)}` : ref ? `/orders/verify/${encodeURIComponent(ref)}` : `/orders/${id}`;
+      // The first payment reference is always ORD-<order id>. Payaza also puts it in the URL; Korapay does not.
+      let ref = (c.order && c.order.payment_reference) || null;
+      if (!ref && c.url) { try { ref = new URL(c.url).searchParams.get('transaction_reference'); } catch (_) {} }
+      if (!ref && id) ref = 'ORD-' + id;
+      const verifyPath = c.guest ? `/orders/guest/verify/${encodeURIComponent(ref)}` : c.url ? `/orders/verify/${encodeURIComponent(ref)}` : `/orders/${id}`;
       const rec = { ref: ref || id, id, network: c.network, size: c.size, number: c.number, amount: c.amount, status: (c.order && c.order.status) || 'pending_payment', at: new Date().toISOString() };
       if (c.guest) App.guestOrders.upsert(rec);
       App.markStale('home', 'orders');
       const summary = `<div class="sum"><div><span>Network</span><b>${esc(c.network)}</b></div><div><span>Bundle</span><b>${esc(c.size)}</b></div><div><span>Recipient</span><b>${esc(c.number)}</b></div><div class="tot"><span>Amount</span><b>${fmt.money(c.amount)}</b></div></div>`;
       App.pay.track(sheet, {
         url: c.url,
+        gateways: c.gateways,
         waitTitle: c.url ? 'Complete your payment' : 'Placing your order',
         waitText: c.url ? '' : 'Paying from your wallet…',
         summary,
@@ -155,6 +179,17 @@
           warn: ['Payment not completed', 'We have not received your payment yet. If you already paid, wait a minute and check again.'],
           proc: ['Still processing', 'Your payment was received and the bundle is being delivered. This can take a few minutes.'],
         },
+        // Only orders that were waiting on an online payment can be resumed.
+        resume: c.url ? async (gatewayKey) => {
+          const r = await App.api(`/orders/payment/${encodeURIComponent(ref)}/resume`, { method: 'POST', auth: false, body: gatewayKey ? { payment_method: gatewayKey } : {} });
+          if (!r.ok) throw new Error(r.error);
+          return r.data.authorization_url || null;
+        } : null,
+        // Re-checks with the gateway and emails the buyer a link to finish paying.
+        onNotPaid: c.url ? async () => {
+          const r = await App.api(`/orders/payment/${encodeURIComponent(ref)}/cancelled`, { method: 'POST', auth: false });
+          return r.ok ? r.data : null;
+        } : null,
         async check() {
           const r = await App.api(verifyPath, { auth: !c.guest });
           if (!r.ok) return null;

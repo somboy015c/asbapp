@@ -98,18 +98,30 @@
       $('#tu-go', s.el).addEventListener('click', async (e) => {
         const b = e.currentTarget, amt = Number($('#tu-amt', s.el).value), m = $('#tu-msg', s.el);
         if (!(amt >= 5 && amt <= 5000)) { m.innerHTML = '<div class="err-msg">Enter an amount between GH₵5 and GH₵5,000.</div>'; return; }
+        const gw = await App.pickGateway(amt);
+        if (gw === undefined) return;                                   // cancelled
+        const before = S.agentWallet ? Number(S.agentWallet.balance) : 0;
         ui.busy(b, true, 'Starting payment');
-        const r = await App.api('/agent/wallet/topup', { method: 'POST', body: { amount: amt } });
+        const r = await App.api('/agent/wallet/topup', { method: 'POST', body: Object.assign({ amount: amt }, gw ? { gateway: gw } : {}) });
         ui.busy(b, false);
         if (!r.ok) { m.innerHTML = `<div class="err-msg">${esc(r.error)}</div>`; return; }
-        let ref = null; try { ref = new URL(r.data.authorization_url).searchParams.get('transaction_reference'); } catch (_) {}
+        let ref = r.data.reference || null;
+        if (!ref) { try { ref = new URL(r.data.authorization_url).searchParams.get('transaction_reference'); } catch (_) {} }
         s.persistent = false; s.close();
         const sheet = ui.sheet({ onClose: () => { body.innerHTML = ui.skel(4); V.overview(body, url); App.refreshData(); } });
         App.pay.track(sheet, {
           url: r.data.authorization_url, waitTitle: 'Top up your wallet',
           summary: `<div class="sum"><div class="tot"><span>Amount</span><b>${fmt.money(amt)}</b></div></div>`,
           results: { ok: ['Wallet topped up', `${fmt.money(amt)} was added to your agent wallet.`], err: ['Top-up failed', 'Your wallet was not charged. You can try again.'] },
-          async check() { if (!ref) return null; const c = await App.api(`/payments/confirm/${encodeURIComponent(ref)}`); return c.ok ? { state: App.pay.confirmState(c.data.status) } : null; },
+          onReturnUrl(u) { const x = new URL(u).searchParams.get('reference'); if (x) ref = x; },
+          async check() {
+            if (ref) { const c = await App.api(`/payments/confirm/${encodeURIComponent(ref)}`); if (c.ok) { const st = App.pay.confirmState(c.data.status); if (st !== 'pending') return { state: st }; } }
+            // No reference: the wallet balance goes up once the payment is confirmed on the server.
+            const w = await App.api('/agent/wallet');
+            if (!w.ok) return null;
+            const bal = Number((w.data.data || w.data).balance);
+            return { state: bal + 0.001 >= before + amt ? 'ok' : 'pending' };
+          },
         });
       });
     },

@@ -92,17 +92,27 @@
       box.addEventListener('click', async (e) => {
         const b = e.target.closest('[data-plan]'); if (!b) return;
         const plan = r.data.data.find((x) => x.key === b.dataset.plan);
+        const gw = await App.pickGateway(plan.price);
+        if (gw === undefined) return;                                   // cancelled
         ui.busy(b, true, 'Starting payment');
-        const x = await App.api('/agent/plan', { method: 'POST', body: { plan: plan.key } });
+        const x = await App.api('/agent/plan', { method: 'POST', body: Object.assign({ plan: plan.key }, gw ? { gateway: gw } : {}) });
         ui.busy(b, false);
         if (!x.ok) return ui.toast(x.error, 'err');
-        let ref = null; try { ref = new URL(x.data.authorization_url).searchParams.get('transaction_reference'); } catch (_) {}
+        // The reference comes back from the server if it sends one, or from Payaza's URL, or from the page we return to.
+        let ref = x.data.reference || null;
+        if (!ref) { try { ref = new URL(x.data.authorization_url).searchParams.get('transaction_reference'); } catch (_) {} }
         const sheet = ui.sheet({ onClose: () => reload() });
         App.pay.track(sheet, {
           url: x.data.authorization_url, waitTitle: 'Pay for your plan',
           summary: `<div class="sum"><div><span>Plan</span><b>${esc(plan.name)}</b></div><div class="tot"><span>Amount</span><b>${fmt.money(plan.price)}</b></div></div>`,
           results: { ok: ['Plan activated', 'Payment received. Next, set up your storefront.'], err: ['Payment failed', 'Your plan was not paid for. You can try again anytime.'] },
-          async check() { if (!ref) return null; const c = await App.api(`/payments/confirm/${encodeURIComponent(ref)}`); return c.ok ? { state: App.pay.confirmState(c.data.status) } : null; },
+          onReturnUrl(u) { const r = new URL(u).searchParams.get('reference'); if (r) ref = r; },
+          async check() {
+            if (ref) { const c = await App.api(`/payments/confirm/${encodeURIComponent(ref)}`); if (c.ok) { const st = App.pay.confirmState(c.data.status); if (st !== 'pending') return { state: st }; } }
+            // No reference (e.g. Korapay): the plan flips to "paid" on the server, so watch your onboarding status instead.
+            const s2 = await App.api('/agent/onboarding/status');
+            return s2.ok ? { state: s2.data.stage !== 'awaiting_payment' ? 'ok' : 'pending' } : null;
+          },
         });
       });
     },

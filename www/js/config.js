@@ -5,7 +5,7 @@ window.ASB = {
   WHATSAPP: '2348135113960',
   PHONE: '+2348135113960',
   EMAIL: 'hello@asbdataghana.com',
-  REPO: 'somboy015c/asbapp',                                  // filled in automatically by the release workflow
+  REPO: '__REPO__',                                  // filled in automatically by the release workflow
   APK_NAME: 'ASBDataGhana.apk',
   MIN_SPLASH_MS: 2600,
   // Onboarding pictures: replace these files (1080 x 1350) or point to your own.

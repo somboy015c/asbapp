@@ -6,7 +6,7 @@
   const FAQ = [
     ["My data hasn't arrived yet. What do I do?", "Delivery normally takes a few minutes after payment. If it has been longer than an hour, open Orders to see the status, then message us on WhatsApp with the order reference."],
     ["I entered the wrong recipient number", "Once a bundle is delivered it can't be reversed or refunded, so please double-check the number first. If it hasn't been delivered yet, contact us right away and we will try to stop it."],
-    ["What payment methods do you accept?", "Mobile Money (MTN, AT, Telecel) and major debit or credit cards, processed securely through Payaza. We never see or store your card details."],
+    ["What payment methods do you accept?", "Mobile Money (MTN, AT, Telecel) and major debit or credit cards, processed securely through Payaza or Korapay. We never see or store your card details."],
     ["Do I need an account to buy?", "No. You can buy as a guest. An account gives you a wallet for refunds and keeps your order history on every device."],
     ["How do I become an agent?", "Tap Agents on the Home tab (or Earn with ASBData). Pick a plan, pay in the app, set up your storefront and we review it within 24 hours."],
   ];
