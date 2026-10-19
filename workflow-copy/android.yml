@@ -1,7 +1,8 @@
-name: Release Android app (APK)
+name: Release Android (Play Store AAB + APK)
 
-# The "button": GitHub -> Actions -> "Release Android app (APK)" -> Run workflow.
-# Builds a signed ASBDataGhana.apk and publishes it as the newest release.
+# The "button": GitHub -> Actions -> "Release Android (Play Store AAB + APK)" -> Run workflow.
+# Builds a signed ASBDataGhana.aab (upload this to Google Play) and ASBDataGhana.apk (direct download),
+# bumps the version and publishes both as the newest GitHub release.
 on:
   workflow_dispatch:
     inputs:
@@ -73,25 +74,34 @@ jobs:
       - name: Set the Android version
         run: node scripts/set-android-version.mjs "${{ steps.bump.outputs.version }}" "${{ steps.bump.outputs.code }}"
 
-      - name: Build release APK
+      # Store build first (UPDATE_CHECK stays 'off': Google Play delivers updates)
+      - name: Build release AAB (Google Play)
         working-directory: android
         run: |
           chmod +x gradlew
+          ./gradlew bundleRelease --no-daemon
+
+      # Direct-download build: switch on the in-app "new version available" banner, then build the APK
+      - name: Build release APK (direct download)
+        working-directory: android
+        run: |
+          sed -i "s/UPDATE_CHECK: 'off'/UPDATE_CHECK: 'github'/" app/src/main/assets/public/js/config.js
+          grep -q "UPDATE_CHECK: 'github'" app/src/main/assets/public/js/config.js
           ./gradlew assembleRelease --no-daemon
 
-      - name: Sign the APK
+      - name: Sign the AAB and APK
         env:
           SECRET_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           SECRET_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           SECRET_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          SECRET_KEYPASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           if [ -n "$SECRET_KEYSTORE" ]; then
-            # You added your own keystore as repository secrets: use it.
+            # You added your own private keystore as repository secrets: use it (recommended for Google Play).
             echo "$SECRET_KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
-            KS="$RUNNER_TEMP/release.keystore"; PASS="$SECRET_PASS"; ALIAS="$SECRET_ALIAS"
+            KS="$RUNNER_TEMP/release.keystore"; PASS="$SECRET_PASS"; ALIAS="$SECRET_ALIAS"; KEYPASS="${SECRET_KEYPASS:-$SECRET_PASS}"
           else
-            # Zero-setup default: create one signing key the first time and reuse it
-            # forever, so new versions install over old ones.
+            # Zero-setup default (fine for testing and direct downloads; use your own key for Google Play).
             KS="android-signing/asbdata.keystore"; ALIAS="asbdata"
             if [ ! -f "$KS" ]; then
               mkdir -p android-signing
@@ -101,13 +111,20 @@ jobs:
               echo "$PASS" > android-signing/password.txt
               echo "Created a new signing key."
             fi
-            PASS=$(cat android-signing/password.txt)
+            PASS=$(cat android-signing/password.txt); KEYPASS="$PASS"
           fi
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+
+          # APK: align, then sign
           UNSIGNED=$(ls android/app/build/outputs/apk/release/*.apk | head -n 1)
           "$BT/zipalign" -p -f 4 "$UNSIGNED" aligned.apk
-          "$BT/apksigner" sign --ks "$KS" --ks-key-alias "$ALIAS" --ks-pass "pass:$PASS" --key-pass "pass:$PASS" --out ASBDataGhana.apk aligned.apk
+          "$BT/apksigner" sign --ks "$KS" --ks-key-alias "$ALIAS" --ks-pass "pass:$PASS" --key-pass "pass:$KEYPASS" --out ASBDataGhana.apk aligned.apk
           "$BT/apksigner" verify ASBDataGhana.apk
+
+          # AAB: sign with jarsigner (what Google Play expects)
+          jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore "$KS" -storepass "$PASS" -keypass "$KEYPASS" \
+            -signedjar ASBDataGhana.aab android/app/build/outputs/bundle/release/app-release.aab "$ALIAS"
+          jarsigner -verify ASBDataGhana.aab | tail -n 2
 
       - name: Commit the version bump and publish the release
         env:
@@ -119,10 +136,11 @@ jobs:
           git add -A
           git diff --cached --quiet || git commit -m "chore(release): v$VERSION"
           git push origin "HEAD:${{ github.ref_name }}"
-          gh release create "v$VERSION" ASBDataGhana.apk \
+          gh release create "v$VERSION" ASBDataGhana.aab ASBDataGhana.apk \
             --title "ASBData Ghana v$VERSION" --notes "$NOTES" --target "$(git rev-parse HEAD)"
           {
             echo "### Released v$VERSION"
             echo ""
-            echo "Download: https://github.com/${{ github.repository }}/releases/latest/download/ASBDataGhana.apk"
+            echo "- Google Play bundle (upload this in Play Console): https://github.com/${{ github.repository }}/releases/latest/download/ASBDataGhana.aab"
+            echo "- Direct download APK: https://github.com/${{ github.repository }}/releases/latest/download/ASBDataGhana.apk"
           } >> "$GITHUB_STEP_SUMMARY"

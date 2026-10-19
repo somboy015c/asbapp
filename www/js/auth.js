@@ -49,7 +49,7 @@
         if (!r.ok) {
           err.innerHTML = `<div class="err-msg">${esc(r.error)}</div>` + (r.code === 'unverified_email' ? '<button class="btn btn-tonal btn-sm tap" id="resend" style="margin-top:10px">Resend verification email</button>' : '');
           const rs = $('#resend', page);
-          if (rs) rs.addEventListener('click', async () => { ui.busy(rs, true, 'Sending'); const x = await App.api('/auth/email/resend-public', { method: 'POST', auth: false, body: { login } }); ui.busy(rs, false); ui.toast(x.ok ? 'Verification email sent' : x.error, x.ok ? 'ok' : 'err'); });
+          if (rs) rs.addEventListener('click', async () => { ui.busy(rs, true, 'Sending'); const x = await App.api('/auth/email/resend-public', { method: 'POST', auth: false, body: { login, source: 'app' } }); ui.busy(rs, false); ui.toast(x.ok ? 'Verification email sent' : x.error, x.ok ? 'ok' : 'err'); });
           return;
         }
         afterAuth(r.data.token, r.data.user);
@@ -87,7 +87,7 @@
       const body = $('#stepBody', page), next = $('#r-next', page);
       const views = {
         1: () => `<div class="step"><h1>What's your name?</h1><p class="lead">Use the name you want on your account.</p>${field('r-name', 'Full name', `autocomplete="name" placeholder="Kofi Mensah" value="${esc(d.name)}"`)}<div id="r-err"></div></div>`,
-        2: () => `<div class="step"><h1>How can we reach you?</h1><p class="lead">We send receipts and order updates here.</p>${field('r-email', 'Email', `type="email" autocomplete="email" placeholder="you@example.com" value="${esc(d.email)}"`)}${field('r-phone', 'Phone number', `type="tel" inputmode="tel" autocomplete="tel" placeholder="024 123 4567" value="${esc(d.phone)}"`)}<div id="r-err"></div></div>`,
+        2: () => `<div class="step"><h1>How can we reach you?</h1><p class="lead">We send receipts and order updates here.</p>${field('r-email', 'Email', `type="email" autocomplete="email" placeholder="you@example.com" value="${esc(d.email)}"`)}${field('r-phone', 'Phone number', `type="tel" inputmode="numeric" maxlength="10" autocomplete="tel" placeholder="0241234567" value="${esc(d.phone)}"`)}<div id="r-err"></div></div>`,
         3: () => `<div class="step"><h1>Set a password</h1><p class="lead">At least 8 characters. Mix letters, numbers and symbols for a stronger one.</p>${field('r-pw', 'Password', 'type="password" autocomplete="new-password" placeholder="Enter password"', eye)}
           <div class="strength" id="str"><i></i><i></i><i></i><i></i></div><div class="strength-l" id="strl"></div>${field('r-pw2', 'Confirm password', 'type="password" autocomplete="new-password" placeholder="Repeat password"')}<div id="r-err"></div></div>`,
       };
@@ -96,7 +96,7 @@
         $('#stepno', page).textContent = `STEP ${step} OF 3`;
         $$('#stepbar i', page).forEach((i, n) => i.classList.toggle('on', n < step));
         next.textContent = step === 3 ? 'Create account' : 'Continue';
-        bindEye(body);
+        bindEye(body); App.digits(body, '#r-phone');
         const pw = $('#r-pw', body);
         if (pw) pw.addEventListener('input', () => {
           const s = ui.strength(pw.value), cols = ['#D1344A', '#E08A1E', '#C9B20A', '#17935A'];
@@ -111,22 +111,55 @@
         if (step === 2) {
           d.email = $('#r-email', body).value.trim(); d.phone = $('#r-phone', body).value.trim();
           if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) return err('Enter a valid email address.');
-          if (d.phone.replace(/\D/g, '').length < 9) return err('Enter a valid phone number.');
+          if (!/^\d{10}$/.test(d.phone)) return err('Your phone number must be exactly 10 digits.');
           step = 3; return render();
         }
         d.password = $('#r-pw', body).value;
         if (d.password.length < 8) return err('Your password must be at least 8 characters.');
         if (d.password !== $('#r-pw2', body).value) return err('The two passwords do not match.');
         ui.busy(next, true, 'Creating account');
-        const r = await App.api('/auth/register', { method: 'POST', auth: false, body: { name: d.name, email: d.email, phone: d.phone, password: d.password, password_confirmation: d.password } });
+        const r = await App.api('/auth/register', { method: 'POST', auth: false, body: { name: d.name, email: d.email, phone: d.phone, password: d.password, password_confirmation: d.password, source: 'app' } });
         ui.busy(next, false);
         if (!r.ok) {
-          if (/email/i.test(r.error)) { step = 2; render(); } else if (/phone/i.test(r.error)) { step = 2; render(); }
+          if (/email|phone/i.test(r.error)) { step = 2; render(); }
           return err(r.error);
         }
+        // The server asks the person to verify their email first (no token yet). Wait for that, then sign in automatically.
+        if (!r.data.token) return verifyScreen();
         await afterAuth(r.data.token, r.data.user);
-        ui.toast('Account created. Check your email to verify it.', 'ok');
+        ui.toast('Account created', 'ok');
       });
+
+      /* "Check your email" screen: signs the person in by itself once they have tapped the link in the email. */
+      const verifyScreen = () => {
+        $('#stepno', page).textContent = 'ALMOST DONE'; $$('#stepbar i', page).forEach((i) => i.classList.add('on'));
+        next.hidden = true;
+        body.innerHTML = `<div class="step res" style="padding-top:20px"><div class="res-ic warn">${ui.icon('mail')}</div><h1 style="font-size:24px;text-align:center">Verify your email</h1>
+          <p class="lead" style="text-align:center">We sent a link to <b>${esc(d.email)}</b>. Open it to confirm your account, then come back here. Check your spam folder if you can't find it.</p>
+          <div class="btn-col" style="width:100%"><button class="btn btn-primary tap" id="v-go">I have verified, continue</button>
+          <button class="btn btn-tonal tap" id="v-resend">Resend email</button><button class="btn btn-outline tap" id="v-change">Use a different email</button></div><div id="v-msg" style="width:100%"></div></div>`;
+        let verifying = false;
+        const tryLogin = async (quiet) => {
+          if (verifying) return; verifying = true;
+          const g = $('#v-go', body); if (!quiet && g) ui.busy(g, true, 'Checking');
+          const x = await App.api('/auth/login', { method: 'POST', auth: false, body: { login: d.email, password: d.password } });
+          if (!quiet && g) ui.busy(g, false);
+          verifying = false;
+          if (x.ok) { if (sub) sub.remove(); await afterAuth(x.data.token, x.data.user); return; }
+          if (!quiet) $('#v-msg', body).innerHTML = `<div class="err-msg">${esc(x.code === 'unverified_email' ? 'Your email is not verified yet. Open the link we sent you, then tap continue.' : x.error)}</div>`;
+        };
+        $('#v-go', body).addEventListener('click', () => tryLogin(false));
+        $('#v-resend', body).addEventListener('click', async (e) => {
+          const b = e.currentTarget; ui.busy(b, true, 'Sending');
+          const x = await App.api('/auth/email/resend-public', { method: 'POST', auth: false, body: { login: d.email, source: 'app' } });
+          ui.busy(b, false); ui.toast(x.ok ? 'Verification email sent' : x.error, x.ok ? 'ok' : 'err');
+        });
+        $('#v-change', body).addEventListener('click', () => { if (sub) sub.remove(); next.hidden = false; step = 2; render(); });
+        // coming back from the email app checks automatically
+        let sub = null;
+        const P = (window.Capacitor && window.Capacitor.Plugins) || {};
+        if (P.App) P.App.addListener('appStateChange', (st) => { if (st.isActive) tryLogin(true); }).then((h) => { sub = h; }).catch(() => {});
+      };
       page._stepBack = () => { if (step > 1) { step--; render(); return true; } return false; };
       render();
     },

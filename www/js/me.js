@@ -24,6 +24,7 @@
           ${row('file', 'Privacy & Policy', 'How we handle your data.', 'data-act="policy"')}
           ${row('info', 'About', 'Version and updates.', 'data-act="about"')}
           ${logged ? row('logout', 'Log Out', 'Sign out of this device.', 'data-act="logout"', 'danger') : ''}
+          ${logged ? row('trash', 'Delete Account', 'Permanently delete your account.', 'data-act="delete-account"', 'danger') : ''}
         </div></div>`;
     },
   };
@@ -31,6 +32,7 @@
   const sw = (id, on) => `<label class="sw"><input type="checkbox" id="${id}" ${on ? 'checked' : ''} /><span></span></label>`;
 
   Object.assign(App.actions, {
+    'delete-account': () => App.actions.deleteAccount(),
     profile() {
       const u = S.user || {}, s = ui.sheet({});
       s.set(`<h3 class="sheet-title">Profile details</h3><div style="margin-top:8px">
@@ -65,14 +67,40 @@
       const s = ui.sheet({});
       s.set(`<h3 class="sheet-title">About</h3><div style="margin-top:8px">
         <div class="kv"><span>App version</span><b>${esc(S.version)}</b></div><div class="kv"><span>Website</span><b>${esc(App.cfg.SITE.replace('https://', ''))}</b></div><div class="kv"><span>Support</span><b>${esc(App.cfg.EMAIL)}</b></div></div>
-        <div class="btn-col"><button class="btn btn-tonal tap" id="a-up">${ui.icon('refresh')}Check for updates</button></div><div id="a-msg"></div>`);
-      $('#a-up', s.el).addEventListener('click', async () => {
+        ${App.cfg.UPDATE_CHECK === 'github' ? `<div class="btn-col"><button class="btn btn-tonal tap" id="a-up">${ui.icon('refresh')}Check for updates</button></div><div id="a-msg"></div>` : ''}`);
+      const upBtn = $('#a-up', s.el);
+      if (upBtn) upBtn.addEventListener('click', async () => {
         const b = $('#a-up', s.el); ui.busy(b, true, 'Checking');
         const u = await App.checkUpdate();
         ui.busy(b, false);
         $('#a-msg', s.el).innerHTML = u
           ? `<p class="note">Version ${esc(u.version)} is available.</p><div class="btn-col" style="margin-top:8px"><button class="btn btn-primary tap" data-url="${esc(u.url)}">Download update</button></div>`
           : '<p class="note" style="color:var(--ok)">You are on the latest version.</p>';
+      });
+    },
+    /* In-app account deletion, required by Google Play and the App Store for apps that let people sign up. */
+    deleteAccount() {
+      const s = ui.sheet({});
+      s.set(`<h3 class="sheet-title">Delete your account?</h3>
+        <p class="sheet-sub">This permanently removes your sign-in and personal details. Your order records are kept for accounting, but they will no longer be linked to you. This can't be undone.</p>
+        <label class="field"><span>Enter your password to confirm</span><div class="inp"><input id="del-pw" type="password" autocomplete="current-password" /></div></label>
+        <div id="del-msg"></div><div class="btn-col"><button class="btn btn-danger tap" id="del-go">Delete my account</button><button class="btn btn-outline tap" id="del-x">Keep my account</button></div>`);
+      $('#del-x', s.el).addEventListener('click', () => s.close());
+      $('#del-go', s.el).addEventListener('click', async () => {
+        const b = $('#del-go', s.el), m = $('#del-msg', s.el), pw = $('#del-pw', s.el).value;
+        if (!pw) { m.innerHTML = '<div class="err-msg">Enter your password to continue.</div>'; return; }
+        ui.busy(b, true, 'Deleting');
+        const r = await App.api('/account/delete', { method: 'POST', body: { password: pw } });
+        ui.busy(b, false);
+        if (!r.ok) {
+          const old = r.status === 404 || r.status === 405;       // server not updated yet: send a request by email instead
+          m.innerHTML = `<div class="err-msg">${esc(old ? 'Please email us to delete your account.' : r.error)}</div>` + (old || r.code === 'contact_support' ? `<div class="btn-col" style="margin-top:10px"><button class="btn btn-tonal tap" id="del-mail">Email support</button></div>` : '');
+          const mb = $('#del-mail', s.el);
+          if (mb) mb.addEventListener('click', () => App.native.link(`mailto:${App.cfg.EMAIL}?subject=${encodeURIComponent('Delete my account')}&body=${encodeURIComponent('Please delete my ASBData Ghana account: ' + ((S.user && S.user.email) || ''))}`));
+          return;
+        }
+        s.close(); App.session.clear(); S.agentWallet = null; App.markStale('home', 'orders', 'me');
+        App.refresh('me', true); App.refresh('home', true); ui.toast('Your account has been deleted', 'ok');
       });
     },
     async logout() {

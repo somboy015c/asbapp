@@ -9,6 +9,7 @@
   const Cap = window.Capacitor || {};
   const P = Cap.Plugins || {};
   App.isNative = !!(Cap.isNativePlatform && Cap.isNativePlatform());
+  App.platform = Cap.getPlatform ? Cap.getPlatform() : 'web';       // 'android' | 'ios' | 'web'
   App.$ = (s, r = document) => r.querySelector(s);
   App.$$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   App.sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -73,7 +74,11 @@
         try {
           subs.push(await IAB.addListener('urlChangeEvent', (e) => { if (e && e.url && isReturn(e.url)) end('return', e.url); }));
           subs.push(await IAB.addListener('closeEvent', () => end('close')));
-          await IAB.openWebView({ url, title: 'Secure payment', showReloadButton: false, closeModal: false });
+          await IAB.openWebView({
+            url, title: 'Secure payment', toolbarColor: '#171B57', toolbarTextColor: '#FFFFFF', showReloadButton: false,
+            activeNativeNavigationForWebview: true, isPresentAfterPageLoad: false,
+            closeModal: true, closeModalTitle: 'Leave payment?', closeModalDescription: 'If you have not finished paying, your order stays unpaid. You can finish it later.', closeModalOk: 'Leave', closeModalCancel: 'Stay',
+          });
           return { close: async () => { if (!ended) { ended = true; cleanup(); try { await IAB.close(); } catch (_) {} } } };
         } catch (_) { cleanup(); }
       }
@@ -172,6 +177,8 @@
     },
   };
   App.gatewaysFor = (price) => (App.state.gateways || []).filter((g) => !(g.min_amount > 0) || Number(price) + 0.001 >= g.min_amount);
+  /* Keep a field to digits only, capped in length (phone and Mobile Money numbers are exactly 10 digits). */
+  App.digits = (root, sel, max = 10) => { App.$$(sel, root).forEach((el) => el.addEventListener('input', () => { const v = el.value.replace(/\D/g, '').slice(0, max); if (v !== el.value) el.value = v; })); };
   App.isAgent = () => !!(App.state.user && App.state.user.agent_status === 'approved');
 
   /* ---------- guest order history (kept on the device) ---------- */

@@ -316,3 +316,12 @@ input{user-select:text;-webkit-user-select:text}
 .net.alt{background:var(--tint);color:var(--primary)}
 .agent-card{cursor:pointer}.chev-btn{margin-left:auto;width:42px;height:42px;border-radius:50%;background:var(--tint);color:var(--primary);display:grid;place-items:center;flex-shrink:0}
 .page .stag>*{animation-duration:.4s}
+
+.tabstrip{display:flex;gap:8px;overflow-x:auto;margin:0 -22px 12px;padding:2px 22px 6px;scrollbar-width:none;flex-shrink:0;-webkit-overflow-scrolling:touch}
+.tabstrip::-webkit-scrollbar{display:none}
+.tabstrip button{flex:0 0 auto;height:40px;padding:0 17px;border-radius:20px;background:var(--bg);color:var(--muted);font-weight:500;font-size:13.5px;white-space:nowrap;transition:background-color .25s,color .25s}
+.tabstrip button.on{background:var(--primary);color:var(--primary-ink)}
+.segs.two .ind{width:calc((100% - 8px)/2)}
+.stats.three{grid-template-columns:repeat(3,1fr);gap:10px}.stats.three .stat b{font-size:20px}
+.fchips{display:flex;gap:8px;overflow-x:auto;margin:0 -22px 12px;padding:0 22px;scrollbar-width:none}.fchips::-webkit-scrollbar{display:none}
+.fchips button{flex:0 0 auto;height:36px;padding:0 14px;border-radius:18px;background:var(--tint);color:var(--primary);font-weight:500;font-size:13px}.fchips button.on{background:var(--primary);color:var(--primary-ink)}

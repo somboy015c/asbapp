@@ -79,8 +79,12 @@
         <div class="h-sec">How it works</div>
         <div class="steps">${STEPS.map((t, i) => `<div><i>${i + 1}</i><span>${esc(t)}</span></div>`).join('')}</div>
         <div class="h-sec">Choose your plan</div><div id="plans">${ui.skel(2)}</div>`;
-      const r = await App.api('/agent-plans', { auth: false });
       const box = $('#plans', body);
+      if (App.platform === 'ios' && App.cfg.HIDE_AGENT_PURCHASE_ON_IOS) {
+        box.innerHTML = `<div class="banner">${ui.icon('info')}<div><b>Plans are on our website</b>Choose and pay for an agent plan at asbdataghana.com, then sign in here to set up your store.</div><button class="tap" data-url="${esc(App.cfg.SITE)}/become-agent">Open</button></div>`;
+        return;
+      }
+      const r = await App.api('/agent-plans', { auth: false });
       if (!r.ok) { box.innerHTML = `<div class="err-msg">${esc(r.error)}</div>`; return; }
       box.innerHTML = r.data.data.map((p) => `
         <div class="plan${p.key === 'website_app' ? ' pop' : ''}">${p.key === 'website_app' ? '<em>Most popular</em>' : ''}
@@ -142,9 +146,10 @@
         ${plan.includes_custom_domain ? A.field('bp-dom', 'Custom domain (optional)', A.input('bp-dom', `maxlength="120" autocapitalize="none" placeholder="yourbrand.com" value="${esc(st.custom_domain || '')}"`), 'Your plan includes a custom domain. Point its DNS to us once approved.') : ''}
         ${A.field('bp-reg', 'Region', A.select('bp-reg', REGIONS, '', 'Select region'))}
         ${A.field('bp-net', 'Mobile Money network', A.select('bp-net', MOMO, '', 'Select network'))}
-        ${A.field('bp-num', 'Mobile Money number', A.input('bp-num', 'type="tel" inputmode="tel" maxlength="20" placeholder="024 000 0000"'), 'Your commission payouts are sent to this number.')}
+        ${A.field('bp-num', 'Mobile Money number', A.input('bp-num', 'type="tel" inputmode="numeric" maxlength="10" placeholder="0240000000"'), 'Your commission payouts are sent to this number.')}
         <div id="bp-err"></div>
         <div class="btn-col"><button class="btn btn-primary tap" id="bp-go">Submit for review</button></div>`;
+      App.digits(body, '#bp-num');
       const sub = $('#bp-sub', body), m = $('#bp-subm', body), err = $('#bp-err', body);
       const clean = () => { sub.value = sub.value.toLowerCase().replace(/[^a-z0-9]/g, ''); };
       let t;
@@ -174,7 +179,7 @@
         if (!logoBlob) return bad('Please choose your business logo.');
         if (!/^[a-z0-9]{3,40}$/.test(v('bp-sub'))) return bad('Your website address must be 3 or more letters and numbers.');
         if (!v('bp-reg') || !v('bp-net')) return bad('Choose your region and Mobile Money network.');
-        if (v('bp-num').replace(/\D/g, '').length < 9) return bad('Enter your Mobile Money number.');
+        if (!/^\d{10}$/.test(v('bp-num'))) return bad('Your Mobile Money number must be exactly 10 digits.');
         const f = new FormData();
         f.append('business_name', v('bp-name')); f.append('business_logo', logoBlob, 'logo.jpg'); f.append('subdomain', v('bp-sub'));
         f.append('region', v('bp-reg')); f.append('momo_network', v('bp-net')); f.append('momo_number', v('bp-num'));

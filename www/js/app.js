@@ -102,7 +102,7 @@
   const parts = (v) => String(v).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
   const newer = (a, b) => { const x = parts(a), y = parts(b); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
   App.checkUpdate = async () => {
-    if (!cfg.REPO || cfg.REPO.startsWith('__')) return null;
+    if (cfg.UPDATE_CHECK !== 'github' || !cfg.REPO || cfg.REPO.startsWith('__')) return null;   // store builds are updated by the stores
     try {
       const r = await fetch(`https://api.github.com/repos/${cfg.REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' } });
       if (!r.ok) return null;

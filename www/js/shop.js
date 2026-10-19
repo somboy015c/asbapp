@@ -83,7 +83,7 @@
         <div class="field" style="margin-top:0"><div class="inp"><input id="g-first" placeholder="First name" autocomplete="given-name" value="${esc(gp.first || '')}" /></div></div>
         <div class="field" style="margin-top:10px"><div class="inp"><input id="g-last" placeholder="Last name" autocomplete="family-name" value="${esc(gp.last || '')}" /></div></div>
         <div class="field" style="margin-top:10px"><div class="inp"><input id="g-email" type="email" placeholder="Email address" autocomplete="email" value="${esc(gp.email || '')}" /></div></div>
-        <div class="field" style="margin-top:10px"><div class="inp"><input id="g-phone" type="tel" inputmode="tel" placeholder="Your phone number" autocomplete="tel" value="${esc(gp.phone || '')}" /></div></div>
+        <div class="field" style="margin-top:10px"><div class="inp"><input id="g-phone" type="tel" inputmode="numeric" maxlength="10" placeholder="Your 10-digit phone number" autocomplete="tel" value="${esc(gp.phone || '')}" /></div></div>
         ${many ? `<div class="h-sec" style="margin-top:18px">Pay with</div><div class="pay three">${gwMethods.map((x) => `<button class="${x.v === firstOn ? 'on' : ''}" data-pm="${x.v}">${esc(x.t)}<small>${esc(x.sub)}</small></button>`).join('')}</div>` : ''}
         <p class="note">We email your receipt. <button class="link" data-act="login-from-sheet">Have an account? Log in</button></p>` : `
         <div class="err-msg" style="margin-top:18px">Guest checkout is switched off right now. Please log in or create an account to buy data.</div>
@@ -97,7 +97,7 @@
         <div style="display:flex;align-items:center;gap:14px"><span class="net" style="background:${m.bg};color:${m.fg}">${esc(m.tag)}</span>
           <div><h3 class="sheet-title">${esc(b.size_label)} ${esc(m.name)}</h3><p class="sheet-sub" style="margin-top:2px">Non expiry data bundle</p></div></div>
         <label class="field"><span>Recipient number</span>
-          <div class="inp" id="rcpt"><input id="num" inputmode="numeric" maxlength="14" placeholder="024 123 4567" autocomplete="off" />
+          <div class="inp" id="rcpt"><input id="num" inputmode="numeric" maxlength="10" placeholder="0241234567" autocomplete="off" />
           <span class="end ok" id="rcptOk">${ui.icon('check')}</span></div></label>
         ${guestBlock || ''}${payBlock}
         <div class="sum"><div><span>Bundle</span><b>${esc(b.size_label)} · ${esc(m.name)}</b></div><div class="tot"><span>Total</span><b>${fmt.money(b.price)}</b></div></div>
@@ -107,7 +107,8 @@
 
       const el = sheet.el; let method = firstOn || 'payaza';
       const num = $('#num', el);
-      num.addEventListener('input', () => { $('#rcptOk', el).classList.toggle('on', /^\d{9,10}$/.test(fmt.local(num.value))); });
+      App.digits(el, '#num, #g-phone');
+      num.addEventListener('input', () => { $('#rcptOk', el).classList.toggle('on', /^\d{10}$/.test(fmt.local(num.value))); });
       el.addEventListener('click', (e) => {
         const pm = e.target.closest('[data-pm]');
         if (pm && !pm.disabled) { method = pm.dataset.pm; $$('[data-pm]', el).forEach((x) => x.classList.toggle('on', x === pm)); }
@@ -118,14 +119,14 @@
       pay.addEventListener('click', async () => {
         $('#buyErr', el).innerHTML = '';
         const number = fmt.local(num.value);
-        if (!/^\d{9,10}$/.test(number)) { $('#rcpt', el).classList.add('bad'); num.focus(); return showErr('Enter the 10-digit number that should receive the data.'); }
+        if (!/^\d{10}$/.test(number)) { $('#rcpt', el).classList.add('bad'); num.focus(); return showErr('Enter the 10-digit number that should receive the data.'); }
         $('#rcpt', el).classList.remove('bad');
         let guest = null;
         if (!logged) {
           guest = { first: $('#g-first', el).value.trim(), last: $('#g-last', el).value.trim(), email: $('#g-email', el).value.trim(), phone: $('#g-phone', el).value.trim() };
           if (!guest.first || !guest.last || !guest.email || !guest.phone) return showErr('Please fill in your first name, last name, email and phone number.');
           if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guest.email)) return showErr('Please enter a valid email address.');
-          if (guest.phone.replace(/\D/g, '').length < 9) return showErr('Please enter a valid phone number.');
+          if (!/^\d{10}$/.test(guest.phone)) return showErr('Your phone number must be exactly 10 digits.');
           App.store.set('guest_profile', guest);
         }
         ui.busy(pay, true, 'Processing');
@@ -138,7 +139,7 @@
           if (r.code === 'guest_checkout_disabled') S.guestEnabled = false;
           return showErr(r.error);
         }
-        shop.track(sheet, { order: r.data.order, url: r.data.authorization_url, guest: !logged, network: m.name, size: b.size_label, number, amount: Number(b.price), method, gateways: gws });
+        shop.track(sheet, { order: r.data.order, reference: r.data.reference, url: r.data.authorization_url, guest: !logged, network: m.name, size: b.size_label, number, amount: Number(b.price), method, gateways: gws });
       });
     },
 
@@ -159,7 +160,7 @@
     track(sheet, c) {
       const id = c.order && c.order.id;
       // The first payment reference is always ORD-<order id>. Payaza also puts it in the URL; Korapay does not.
-      let ref = (c.order && c.order.payment_reference) || null;
+      let ref = c.reference || (c.order && c.order.payment_reference) || null;
       if (!ref && c.url) { try { ref = new URL(c.url).searchParams.get('transaction_reference'); } catch (_) {} }
       if (!ref && id) ref = 'ORD-' + id;
       const verifyPath = c.guest ? `/orders/guest/verify/${encodeURIComponent(ref)}` : c.url ? `/orders/verify/${encodeURIComponent(ref)}` : `/orders/${id}`;

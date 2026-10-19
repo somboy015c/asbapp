@@ -18,5 +18,9 @@
     "StatusBar": {
       "style": "LIGHT"
     }
+  },
+  "ios": {
+    "contentInset": "never",
+    "scheme": "ASBData Ghana"
   }
 }

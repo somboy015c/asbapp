@@ -4,9 +4,9 @@
   const { $, $$, esc } = App;
 
   const SLIDES = [
-    { title: 'Cheap data, delivered in minutes', text: 'Buy MTN, Telecel and AirtelTigo bundles in a few taps. No expiry, no hidden fees.' },
-    { title: 'No account needed to buy', text: 'Pay with Mobile Money or card as a guest. Create an account later, only if you want a wallet and order history.' },
-    { title: 'Grow with your own data store', text: 'Become an agent and run your own storefront. You can set it up on our website whenever you are ready.' },
+    { title: 'Cheap data, delivered in minutes', text: 'Affordable, fast and reliable. Buy MTN, Telecel and AirtelTigo bundles in a few taps.' },
+    { title: 'No account needed. Pay with Mobile Money on the go', text: 'Buy as a guest and pay with Mobile Money or card. Seamless, fast, instant top-up.' },
+    { title: 'Become an agent and run your storefront', text: 'Start your own data business with your own store, set up and managed right here in the app.' },
   ];
 
   App.onboarding = {
