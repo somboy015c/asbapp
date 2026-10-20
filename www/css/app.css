@@ -75,10 +75,9 @@ input{user-select:text;-webkit-user-select:text}
 .ob-slide.on .ob-img img{transform:scale(1)}
 .ob-img::after{content:"";position:absolute;left:0;right:0;bottom:0;height:46%;background:linear-gradient(transparent,var(--surface))}
 .ob-copy{margin-top:-34px;padding:0 28px;text-align:center;position:relative;z-index:1}
-.ob-brand{display:inline-flex;align-items:center;gap:10px;margin-bottom:14px;font-weight:700;font-size:26px;letter-spacing:-.02em}
-.ob-brand i{width:42px;height:42px;border-radius:50%;background:#fff;display:grid;place-items:center;box-shadow:0 6px 18px rgba(42,47,160,.22)}
-.ob-brand img{width:28px}
-.ob-brand b{color:var(--cyan)}
+.ob-brand{display:flex;justify-content:center;margin-bottom:14px}
+.ob-brand img{height:54px;width:auto;max-width:78%;object-fit:contain}
+[data-theme=dark] .ob-brand img{background:#fff;border-radius:14px;padding:6px 14px}
 .ob-copy h1{font-size:28px;line-height:1.18;font-weight:700;letter-spacing:-.02em;opacity:0;transform:translateY(14px)}
 .ob-copy p{margin-top:12px;color:var(--muted);font-size:15.5px;line-height:1.6;opacity:0;transform:translateY(14px)}
 .ob-slide.on h1{animation:fadeUp .6s var(--ease) .12s forwards}.ob-slide.on p{animation:fadeUp .6s var(--ease) .22s forwards}
@@ -86,7 +85,8 @@ input{user-select:text;-webkit-user-select:text}
 .dots{display:flex;gap:8px;justify-content:center;margin:6px 0 14px}
 .dots i{width:10px;height:10px;border-radius:6px;background:var(--line);transition:width .45s var(--spring),background-color .3s}
 .dots i.on{width:34px;background:var(--primary)}
-.ob-skip{position:absolute;top:calc(var(--sat) + 14px);right:18px;z-index:3;padding:9px 18px;border-radius:20px;background:rgba(255,255,255,.88);color:#171B57;font-weight:500;font-size:14px;backdrop-filter:blur(8px)}
+.ob-skip{position:absolute;top:calc(var(--sat) + 14px);right:18px;z-index:3;padding:9px 18px;border-radius:20px;background:rgba(255,255,255,.88);color:#171B57;font-weight:500;font-size:14px;backdrop-filter:blur(8px);transition:opacity .3s,visibility .3s}
+.ob-skip.hide{opacity:0;visibility:hidden;pointer-events:none}
 
 /* ---------- Shell + tabs ---------- */
 #main{z-index:10;display:flex;flex-direction:column}

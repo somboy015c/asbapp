@@ -16,22 +16,22 @@
         root.hidden = false;
         root.innerHTML = `
           <button class="ob-skip tap" id="obSkip">Skip</button>
+          <button class="ob-skip tap hide" id="obLogin">Log in</button>
           <div class="ob-track" id="obTrack">${SLIDES.map((s, i) => `
             <div class="ob-slide${i ? '' : ' on'}">
               <div class="ob-img"><img src="${esc(App.cfg.ONBOARDING[i])}" alt="" /></div>
               <div class="ob-copy">
-                <div class="ob-brand"><i><img src="assets/mark.png" alt="" /></i><span><b>ASB</b>Data</span></div>
+                <div class="ob-brand"><img src="assets/logo.png" alt="ASBData Ghana" /></div>
                 <h1>${esc(s.title)}</h1><p>${esc(s.text)}</p>
               </div>
             </div>`).join('')}</div>
           <div class="ob-foot">
             <div class="dots">${SLIDES.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>
             <button class="btn btn-primary tap" id="obNext">Next</button>
-            <button class="btn btn-outline tap" id="obLogin" style="visibility:hidden">Log in</button>
           </div>`;
 
         const track = $('#obTrack', root), slides = $$('.ob-slide', root), dots = $$('.dots i', root);
-        const next = $('#obNext', root), login = $('#obLogin', root);
+        const next = $('#obNext', root), login = $('#obLogin', root), skip = $('#obSkip', root);
         let idx = 0;
         const go = (i) => {
           idx = Math.max(0, Math.min(SLIDES.length - 1, i));
@@ -40,8 +40,8 @@
           dots.forEach((d, n) => d.classList.toggle('on', n === idx));
           const last = idx === SLIDES.length - 1;
           next.textContent = last ? 'Get started' : 'Next';
-          login.style.visibility = last ? 'visible' : 'hidden';
-          $('#obSkip', root).style.display = last ? 'none' : '';
+          login.classList.toggle('hide', !last);
+          skip.classList.toggle('hide', last);
         };
         const finish = (to) => {
           App.store.set('onboarded', true);
@@ -51,7 +51,7 @@
         };
         next.addEventListener('click', () => (idx < SLIDES.length - 1 ? go(idx + 1) : finish('home')));
         login.addEventListener('click', () => finish('login'));
-        $('#obSkip', root).addEventListener('click', () => finish('home'));
+        skip.addEventListener('click', () => finish('home'));
 
         // swipe
         let x0 = null, y0 = 0;
